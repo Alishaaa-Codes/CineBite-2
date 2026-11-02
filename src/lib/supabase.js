@@ -44,6 +44,49 @@ export function getSupabaseConfigStatus() {
 }
 
 // -----------------------------------------------------------------------------
+// PERSISTENT REALTIME & BROADCAST CHANNELS (Auto-connecting singletons)
+// -----------------------------------------------------------------------------
+let liveKitchenChannel = null;
+
+export function getKitchenOrdersChannel() {
+  if (!supabase) return null;
+  if (!liveKitchenChannel) {
+    liveKitchenChannel = supabase.channel('cinebite-live-kitchen', {
+      config: {
+        broadcast: {
+          ack: true
+        }
+      }
+    });
+
+    if (typeof window !== 'undefined') {
+      liveKitchenChannel.subscribe();
+    }
+  }
+  return liveKitchenChannel;
+}
+
+// Auto-initialize connection on script load so channel is already joined when user orders
+if (typeof window !== 'undefined' && supabase) {
+  try {
+    getKitchenOrdersChannel();
+  } catch (e) {}
+}
+
+let sharedBroadcastChannel = null;
+export function getSharedBroadcastChannel() {
+  if (typeof window !== 'undefined' && window.BroadcastChannel) {
+    if (!sharedBroadcastChannel) {
+      try {
+        sharedBroadcastChannel = new BroadcastChannel('cinebite-orders-channel');
+      } catch (e) {}
+    }
+    return sharedBroadcastChannel;
+  }
+  return null;
+}
+
+// -----------------------------------------------------------------------------
 // CINEMA ORDERS STORE (Shared in-memory & localStorage fallback)
 // -----------------------------------------------------------------------------
 const INITIAL_DEMO_ORDERS = [
@@ -197,11 +240,8 @@ class LocalOrdersStore {
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('cinebite:new-order', { detail: order }));
       try {
-        if (window.BroadcastChannel) {
-          const bc = new BroadcastChannel('cinebite-orders-channel');
-          bc.postMessage({ type: 'new-order', order });
-          bc.close();
-        }
+        const bc = getSharedBroadcastChannel();
+        if (bc) bc.postMessage({ type: 'new-order', order });
       } catch (e) {}
       try {
         localStorage.setItem('cinebite_new_order_sync', JSON.stringify({
@@ -236,11 +276,8 @@ class LocalOrdersStore {
     }
 
     try {
-      if (typeof window !== 'undefined' && window.BroadcastChannel) {
-        const bc = new BroadcastChannel('cinebite-orders-channel');
-        bc.postMessage({ type: 'order-updated', ...detailPayload });
-        bc.close();
-      }
+      const bc = getSharedBroadcastChannel();
+      if (bc) bc.postMessage({ type: 'order-updated', ...detailPayload });
     } catch (e) {}
 
     try {
@@ -386,25 +423,30 @@ export async function placeCinemaOrder({
 
   // 4. Broadcast in real time across ALL connected devices via Supabase Realtime WebSocket
   try {
-    if (supabase) {
-      const channel = supabase.channel('cinebite-live-kitchen');
-      const sendBroadcast = () => {
-        channel.send({
-          type: 'broadcast',
-          event: 'new_order',
-          payload: liveOrder
-        });
-      };
+    const channel = getKitchenOrdersChannel();
+    if (channel) {
+      const sendPromise = new Promise((resolve) => {
+        const doSend = () => {
+          channel.send({
+            type: 'broadcast',
+            event: 'new_order',
+            payload: liveOrder
+          }).then(resolve).catch(resolve);
+        };
 
-      if (channel.state === 'joined') {
-        sendBroadcast();
-      } else {
-        channel.subscribe((status) => {
-          if (status === 'SUBSCRIBED') {
-            sendBroadcast();
-          }
-        });
-      }
+        if (channel.state === 'joined') {
+          doSend();
+        } else {
+          channel.subscribe((status) => {
+            if (status === 'SUBSCRIBED') {
+              doSend();
+            }
+          });
+        }
+      });
+
+      // Await send with 800ms safety cap so order finishes swiftly and reliably
+      await Promise.race([sendPromise, new Promise(res => setTimeout(res, 800))]);
     }
   } catch (bcErr) {
     console.warn('Realtime cross-device broadcast warning:', bcErr);
@@ -828,14 +870,14 @@ export async function updateOrderStatus(orderId, newStatus, isDemo = false) {
 
   // 2. Broadcast status update across devices via Supabase Realtime
   try {
-    if (supabase) {
-      const channel = supabase.channel('cinebite-live-kitchen');
+    const channel = getKitchenOrdersChannel();
+    if (channel) {
       const sendUpdate = () => {
         channel.send({
           type: 'broadcast',
           event: 'status_update',
           payload: { orderId, status: newStatus }
-        });
+        }).catch(() => {});
       };
 
       if (channel.state === 'joined') {
@@ -932,20 +974,20 @@ export function subscribeToKitchenOrders({ onInsert, onUpdate, isDemo = false })
   }
 
   // 2. Cross-tab BroadcastChannel listener
-  let bc = null;
-  try {
-    if (typeof window !== 'undefined' && window.BroadcastChannel) {
-      bc = new BroadcastChannel('cinebite-orders-channel');
-      bc.onmessage = (e) => {
-        const data = e.data;
-        if (data?.type === 'new-order' && data.order) {
-          handleNew(data.order);
-        } else if (data?.type === 'order-updated') {
-          handleStatus(data);
-        }
-      };
+  const bc = getSharedBroadcastChannel();
+  const handleBcMessage = (e) => {
+    const data = e?.data;
+    if (data?.type === 'new-order' && data.order) {
+      handleNew(data.order);
+    } else if (data?.type === 'order-updated') {
+      handleStatus(data);
     }
-  } catch (e) {}
+  };
+  if (bc) {
+    try {
+      bc.addEventListener('message', handleBcMessage);
+    } catch (e) {}
+  }
 
   // 3. Cross-tab localStorage storage listener
   const handleStorage = (e) => {
@@ -966,10 +1008,9 @@ export function subscribeToKitchenOrders({ onInsert, onUpdate, isDemo = false })
   }
 
   // 4. Supabase Cross-Device Realtime Broadcast & Postgres Changes
-  let sbChannel = null;
-  if (isSupabaseConfigured && supabase) {
+  const sbChannel = getKitchenOrdersChannel();
+  if (sbChannel) {
     try {
-      sbChannel = supabase.channel('cinebite-live-kitchen');
       sbChannel
         .on('broadcast', { event: 'new_order' }, (payload) => {
           if (payload?.payload) {
@@ -980,6 +1021,25 @@ export function subscribeToKitchenOrders({ onInsert, onUpdate, isDemo = false })
           if (payload?.payload) {
             handleStatus(payload.payload);
           }
+        })
+        .on('broadcast', { event: 'sync_orders' }, (payload) => {
+          if (Array.isArray(payload?.payload)) {
+            for (const item of payload.payload) {
+              handleNew(item);
+            }
+          }
+        })
+        .on('broadcast', { event: 'request_sync' }, () => {
+          try {
+            const currentOrders = localOrders.getOrders();
+            if (currentOrders?.length) {
+              sbChannel.send({
+                type: 'broadcast',
+                event: 'sync_orders',
+                payload: currentOrders
+              }).catch(() => {});
+            }
+          } catch (e) {}
         })
         .on(
           'postgres_changes',
@@ -1017,7 +1077,13 @@ export function subscribeToKitchenOrders({ onInsert, onUpdate, isDemo = false })
           }
         );
 
-      if (sbChannel.state !== 'joined') {
+      if (sbChannel.state === 'joined') {
+        sbChannel.send({
+          type: 'broadcast',
+          event: 'request_sync',
+          payload: { requestedAt: Date.now() }
+        }).catch(() => {});
+      } else {
         sbChannel.subscribe((status) => {
           if (status === 'SUBSCRIBED') {
             try {
@@ -1025,7 +1091,7 @@ export function subscribeToKitchenOrders({ onInsert, onUpdate, isDemo = false })
                 type: 'broadcast',
                 event: 'request_sync',
                 payload: { requestedAt: Date.now() }
-              });
+              }).catch(() => {});
             } catch (e) {}
           }
         });
@@ -1042,10 +1108,8 @@ export function subscribeToKitchenOrders({ onInsert, onUpdate, isDemo = false })
       window.removeEventListener('storage', handleStorage);
     }
     if (bc) {
-      try { bc.close(); } catch (e) {}
+      try { bc.removeEventListener('message', handleBcMessage); } catch (e) {}
     }
-    if (sbChannel && supabase) {
-      supabase.removeChannel(sbChannel);
-    }
+    // Channel connection remains continuously open across kitchen re-renders
   };
 }

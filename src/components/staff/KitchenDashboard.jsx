@@ -28,7 +28,8 @@ import {
   fetchStaffOrders, 
   updateOrderStatus, 
   subscribeToKitchenOrders, 
-  signOutStaff 
+  signOutStaff,
+  localOrders 
 } from '../../lib/supabase';
 import { kitchenAudio } from '../../lib/audioAlert';
 import OrderDetailModal from './OrderDetailModal';
@@ -70,21 +71,82 @@ export default function KitchenDashboard({
     return () => clearInterval(timer);
   }, []);
 
-  // Load Initial Orders
-  const loadOrders = useCallback(async () => {
+  // Load Orders (silent sync without loading spinner for fluid live updates)
+  const loadOrders = useCallback(async (isInitial = false) => {
     try {
-      setIsLoading(true);
+      if (isInitial) setIsLoading(true);
       const data = await fetchStaffOrders(isDemoMode);
-      setOrders(data);
+      if (Array.isArray(data)) {
+        setOrders((prev) => {
+          const prevKey = prev.map((o) => `${o.id || o.order_number}:${o.status}`).join('|');
+          const nextKey = data.map((o) => `${o.id || o.order_number}:${o.status}`).join('|');
+          if (prevKey !== nextKey) {
+            const prevIds = new Set(prev.map((o) => o.id || o.order_number));
+            const hasNew = data.some((o) => !prevIds.has(o.id || o.order_number));
+            if (hasNew && !isInitial) {
+              kitchenAudio.playNewOrderChime();
+              setNewOrderAlert(data[0]?.order_number || 'New Order');
+              setTimeout(() => setNewOrderAlert(null), 5000);
+            }
+            return data;
+          }
+          return prev;
+        });
+      }
     } catch (err) {
       console.error('Failed to load kitchen orders:', err);
     } finally {
-      setIsLoading(false);
+      if (isInitial) setIsLoading(false);
     }
   }, [isDemoMode]);
 
   useEffect(() => {
-    loadOrders();
+    // 1. Initial load
+    loadOrders(true);
+
+    // 2. High-frequency 1-second auto-poll (silent, smooth, immediate)
+    const poller = setInterval(() => {
+      loadOrders(false);
+    }, 1000);
+
+    // 3. Direct in-memory subscription to localOrders store (0ms instant sync)
+    const unsubStore = localOrders.subscribe((freshOrders) => {
+      if (Array.isArray(freshOrders)) {
+        setOrders((prev) => {
+          const prevKey = prev.map((o) => `${o.id || o.order_number}:${o.status}`).join('|');
+          const nextKey = freshOrders.map((o) => `${o.id || o.order_number}:${o.status}`).join('|');
+          if (prevKey !== nextKey) {
+            if (freshOrders.length > prev.length) {
+              kitchenAudio.playNewOrderChime();
+              setNewOrderAlert(freshOrders[0]?.order_number || 'New Order');
+              setTimeout(() => setNewOrderAlert(null), 5000);
+            }
+            return freshOrders;
+          }
+          return prev;
+        });
+      }
+    });
+
+    // 4. Instant re-sync when Safari tab becomes visible or receives focus
+    const handleVisibility = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        loadOrders(false);
+      }
+    };
+    if (typeof window !== 'undefined') {
+      window.addEventListener('visibilitychange', handleVisibility);
+      window.addEventListener('focus', handleVisibility);
+    }
+
+    return () => {
+      clearInterval(poller);
+      unsubStore();
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('visibilitychange', handleVisibility);
+        window.removeEventListener('focus', handleVisibility);
+      }
+    };
   }, [loadOrders]);
 
   // Real-time Supabase / Local Orders Subscription
