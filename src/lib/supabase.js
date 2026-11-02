@@ -4,9 +4,9 @@ import { createClient } from '@supabase/supabase-js';
 const FALLBACK_SUPABASE_URL = 'https://vvowuokndzefnhdlhgqm.supabase.co';
 const FALLBACK_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ2b3d1b2tuZHplZm5oZGxoZ3FtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTMwMTgzODQsImV4cCI6MjEwODU5NDM4NH0.Mhgdi3RfxrsfO4Kc0msHz9JzGxbsXm4AN4p12pipsvs';
 
-const rawUrl = import.meta.env.VITE_SUPABASE_URL || FALLBACK_SUPABASE_URL;
+const rawUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || FALLBACK_SUPABASE_URL;
 const supabaseUrl = rawUrl.replace(/\/rest\/v1\/?$/, '').replace(/\/+$/, '');
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || FALLBACK_SUPABASE_ANON_KEY;
+const supabaseAnonKey = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_ANON_KEY) || FALLBACK_SUPABASE_ANON_KEY;
 
 // Check if valid credentials are provided
 export const isSupabaseConfigured = Boolean(
@@ -425,28 +425,22 @@ export async function placeCinemaOrder({
   try {
     const channel = getKitchenOrdersChannel();
     if (channel) {
-      const sendPromise = new Promise((resolve) => {
-        const doSend = () => {
-          channel.send({
-            type: 'broadcast',
-            event: 'new_order',
-            payload: liveOrder
-          }).then(resolve).catch(resolve);
-        };
+      const doSend = () => {
+        channel.send({
+          type: 'broadcast',
+          event: 'new_order',
+          payload: liveOrder
+        }).catch(() => {});
+      };
 
-        if (channel.state === 'joined') {
-          doSend();
-        } else {
-          channel.subscribe((status) => {
-            if (status === 'SUBSCRIBED') {
-              doSend();
-            }
-          });
-        }
-      });
-
-      // Await send with 800ms safety cap so order finishes swiftly and reliably
-      await Promise.race([sendPromise, new Promise(res => setTimeout(res, 800))]);
+      if (channel.state === 'joined') {
+        doSend();
+      } else {
+        channel.subscribe((status) => {
+          if (status === 'SUBSCRIBED') doSend();
+        });
+        setTimeout(doSend, 400);
+      }
     }
   } catch (bcErr) {
     console.warn('Realtime cross-device broadcast warning:', bcErr);
@@ -533,12 +527,10 @@ export function subscribeToOrderStatus(optionsOrId, onStatusChange) {
 
   const matches = (idToCheck, numToCheck) => {
     if (!idToCheck && !numToCheck) return false;
-    return (
-      (orderId && idToCheck === orderId) ||
-      (orderNumber && idToCheck === orderNumber) ||
-      (orderNumber && numToCheck === orderNumber) ||
-      (orderId && numToCheck === orderId)
-    );
+    const clean = (v) => String(v || '').trim().toLowerCase();
+    const targets = [clean(orderId), clean(orderNumber)].filter(Boolean);
+    const incoming = [clean(idToCheck), clean(numToCheck)].filter(Boolean);
+    return targets.some(t => incoming.includes(t));
   };
 
   // 1. Same-window CustomEvent listener
@@ -553,18 +545,18 @@ export function subscribeToOrderStatus(optionsOrId, onStatusChange) {
   }
 
   // 2. Cross-tab BroadcastChannel listener
-  let bc = null;
-  try {
-    if (typeof window !== 'undefined' && window.BroadcastChannel) {
-      bc = new BroadcastChannel('cinebite-orders-channel');
-      bc.onmessage = (e) => {
-        const data = e.data;
-        if (data?.type === 'order-updated' && matches(data.id, data.orderNumber) && data.status) {
-          onStatusChange(data.status);
-        }
-      };
+  const bc = getSharedBroadcastChannel();
+  const handleBcMessage = (e) => {
+    const data = e?.data;
+    if (data?.type === 'order-updated' && matches(data.id, data.orderNumber) && data.status) {
+      onStatusChange(data.status);
     }
-  } catch (e) {}
+  };
+  if (bc) {
+    try {
+      bc.addEventListener('message', handleBcMessage);
+    } catch (e) {}
+  }
 
   // 3. Cross-tab localStorage storage event listener
   const handleStorage = (e) => {
@@ -582,13 +574,12 @@ export function subscribeToOrderStatus(optionsOrId, onStatusChange) {
   }
 
   // 4. Supabase Realtime channel (cinebite-live-kitchen Broadcast + Postgres Changes)
-  let sbChannel = null;
-  if (isSupabaseConfigured && supabase) {
+  const sbChannel = getKitchenOrdersChannel();
+  if (sbChannel) {
     try {
-      sbChannel = supabase.channel('cinebite-live-kitchen');
       sbChannel
         .on('broadcast', { event: 'status_update' }, (msg) => {
-          const payload = msg.payload;
+          const payload = msg?.payload;
           if (payload && matches(payload.orderId, payload.orderNumber) && payload.status) {
             onStatusChange(payload.status);
           }
@@ -601,7 +592,7 @@ export function subscribeToOrderStatus(optionsOrId, onStatusChange) {
                 type: 'broadcast',
                 event: 'new_order',
                 payload: currentOrder
-              });
+              }).catch(() => {});
             }
           } catch (e) {}
         })
@@ -627,11 +618,21 @@ export function subscribeToOrderStatus(optionsOrId, onStatusChange) {
     }
   }
 
-  // 5. Active Polling Fallback (Polls every 2 seconds for fresh DB status)
+  // 5. Active Polling Fallback (Polls every 2 seconds for fresh DB or local status)
   let isCancelled = false;
   const pollStatus = async () => {
     if (isCancelled) return;
     try {
+      // First check local orders store in case same-browser
+      const local = localOrders.getOrders().find(o => matches(o.id, o.order_number));
+      if (local?.status && !isCancelled) {
+        onStatusChange(local.status);
+        if (local.status === 'delivered' || local.status === 'cancelled') {
+          clearInterval(pollTimer);
+          return;
+        }
+      }
+
       const freshOrder = await getOrderStatus(orderId, accessToken);
       if (freshOrder?.status && !isCancelled) {
         onStatusChange(freshOrder.status);
@@ -653,11 +654,9 @@ export function subscribeToOrderStatus(optionsOrId, onStatusChange) {
       window.removeEventListener('storage', handleStorage);
     }
     if (bc) {
-      try { bc.close(); } catch (e) {}
+      try { bc.removeEventListener('message', handleBcMessage); } catch (e) {}
     }
-    if (sbChannel && supabase) {
-      try { supabase.removeChannel(sbChannel); } catch (e) {}
-    }
+    // Channel connection remains hot and listening across components
   };
 }
 
@@ -866,28 +865,34 @@ export async function updateOrderStatus(orderId, newStatus, isDemo = false) {
   if (!orderId || !newStatus) throw new Error('Order ID and new status are required.');
 
   // 1. Always update local store for instant reactive UI feedback
-  localOrders.updateStatus(orderId, newStatus);
+  const updatedOrder = localOrders.updateStatus(orderId, newStatus);
+  const resolvedId = updatedOrder?.id || orderId;
+  const resolvedNumber = updatedOrder?.order_number || (String(orderId).startsWith('CB-') ? orderId : null);
 
   // 2. Broadcast status update across devices via Supabase Realtime
   try {
     const channel = getKitchenOrdersChannel();
     if (channel) {
-      const sendUpdate = () => {
+      const doSend = () => {
         channel.send({
           type: 'broadcast',
           event: 'status_update',
-          payload: { orderId, status: newStatus }
+          payload: {
+            orderId: resolvedId,
+            orderNumber: resolvedNumber,
+            status: newStatus,
+            updated_at: new Date().toISOString()
+          }
         }).catch(() => {});
       };
 
       if (channel.state === 'joined') {
-        sendUpdate();
+        doSend();
       } else {
         channel.subscribe((status) => {
-          if (status === 'SUBSCRIBED') {
-            sendUpdate();
-          }
+          if (status === 'SUBSCRIBED') doSend();
         });
+        setTimeout(doSend, 400);
       }
     }
   } catch (bcErr) {
@@ -898,7 +903,7 @@ export async function updateOrderStatus(orderId, newStatus, isDemo = false) {
   let data = null;
   if (!isDemo && isSupabaseConfigured && supabase && !String(orderId).startsWith('demo-') && !String(orderId).startsWith('local-') && !String(orderId).startsWith('order-')) {
     try {
-      const res = await supabase
+      const updatePromise = supabase
         .from('orders')
         .update({ 
           status: newStatus,
@@ -933,7 +938,11 @@ export async function updateOrderStatus(orderId, newStatus, isDemo = false) {
         `)
         .maybeSingle();
 
-      data = res.data;
+      const res = await Promise.race([
+        updatePromise,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('DB update timeout')), 1200))
+      ]);
+      data = res?.data;
     } catch (e) {
       console.warn('Server status update error:', e);
     }
@@ -1111,5 +1120,235 @@ export function subscribeToKitchenOrders({ onInsert, onUpdate, isDemo = false })
       try { bc.removeEventListener('message', handleBcMessage); } catch (e) {}
     }
     // Channel connection remains continuously open across kitchen re-renders
+  };
+}
+
+// -----------------------------------------------------------------------------
+// MENU & STOCK REALTIME SYNCHRONIZATION (Cross-Device)
+// -----------------------------------------------------------------------------
+
+/**
+ * Broadcasts an Out-of-Stock toggle across all connected customer & kitchen devices
+ */
+export function broadcastMenuStockToggle(itemId, isOutOfStock, updatedMenuItems) {
+  if (typeof window === 'undefined') return;
+
+  let menuList = updatedMenuItems;
+  if (!menuList) {
+    try {
+      const saved = JSON.parse(localStorage.getItem('cinebite_menu_items') || '[]');
+      if (Array.isArray(saved) && saved.length) {
+        menuList = saved.map(it => it.id === itemId ? { ...it, isOutOfStock } : it);
+      }
+    } catch (e) {}
+  }
+
+  try {
+    if (menuList && Array.isArray(menuList)) {
+      localStorage.setItem('cinebite_menu_items', JSON.stringify(menuList));
+    }
+    localStorage.setItem('cinebite_stock_sync', JSON.stringify({
+      itemId,
+      isOutOfStock,
+      time: Date.now()
+    }));
+  } catch (e) {}
+
+  const bc = getSharedBroadcastChannel();
+  if (bc) {
+    try {
+      bc.postMessage({ type: 'stock_toggle', itemId, isOutOfStock, menuItems: menuList });
+    } catch (e) {}
+  }
+
+  try {
+    const channel = getKitchenOrdersChannel();
+    if (channel) {
+      const doSend = () => {
+        return channel.send({
+          type: 'broadcast',
+          event: 'menu_stock_toggle',
+          payload: { itemId, isOutOfStock, menuItems: menuList }
+        }).catch(() => {});
+      };
+
+      if (channel.state === 'joined') {
+        doSend();
+      } else {
+        channel.subscribe((status) => {
+          if (status === 'SUBSCRIBED') doSend();
+        });
+      }
+    }
+  } catch (e) {}
+}
+
+/**
+ * Broadcasts the entire menu snapshot across all connected devices (e.g. after adding an item)
+ */
+export function broadcastMenuSync(updatedMenuItems) {
+  if (typeof window === 'undefined' || !updatedMenuItems) return;
+
+  try {
+    localStorage.setItem('cinebite_menu_items', JSON.stringify(updatedMenuItems));
+  } catch (e) {}
+
+  const bc = getSharedBroadcastChannel();
+  if (bc) {
+    try {
+      bc.postMessage({ type: 'menu_sync', menuItems: updatedMenuItems });
+    } catch (e) {}
+  }
+
+  try {
+    const channel = getKitchenOrdersChannel();
+    if (channel) {
+      const doSend = () => {
+        return channel.send({
+          type: 'broadcast',
+          event: 'menu_sync',
+          payload: { menuItems: updatedMenuItems }
+        }).catch(() => {});
+      };
+
+      if (channel.state === 'joined') {
+        doSend();
+      } else {
+        channel.subscribe((status) => {
+          if (status === 'SUBSCRIBED') doSend();
+        });
+      }
+    }
+  } catch (e) {}
+}
+
+/**
+ * Subscribes customer and staff devices to real-time menu and stock availability changes
+ */
+export function subscribeToMenuUpdates(onMenuUpdate) {
+  if (typeof window === 'undefined' || typeof onMenuUpdate !== 'function') return () => {};
+
+  // 1. Cross-tab BroadcastChannel listener
+  const bc = getSharedBroadcastChannel();
+  const handleBcMessage = (e) => {
+    const data = e?.data;
+    if (data?.type === 'stock_toggle') {
+      if (Array.isArray(data.menuItems)) {
+        onMenuUpdate(data.menuItems);
+      } else if (data.itemId) {
+        try {
+          const current = JSON.parse(localStorage.getItem('cinebite_menu_items') || '[]');
+          if (Array.isArray(current) && current.length) {
+            const next = current.map(it => it.id === data.itemId ? { ...it, isOutOfStock: data.isOutOfStock } : it);
+            onMenuUpdate(next);
+          }
+        } catch (e) {}
+      }
+    } else if (data?.type === 'menu_sync' && Array.isArray(data.menuItems)) {
+      onMenuUpdate(data.menuItems);
+    }
+  };
+  if (bc) {
+    try {
+      bc.addEventListener('message', handleBcMessage);
+    } catch (e) {}
+  }
+
+  // 2. Cross-tab localStorage listener
+  const handleStorage = (e) => {
+    if (e.key === 'cinebite_menu_items' && e.newValue) {
+      try {
+        const parsed = JSON.parse(e.newValue);
+        if (Array.isArray(parsed)) onMenuUpdate(parsed);
+      } catch (err) {}
+    } else if (e.key === 'cinebite_stock_sync' && e.newValue) {
+      try {
+        const sync = JSON.parse(e.newValue);
+        const current = JSON.parse(localStorage.getItem('cinebite_menu_items') || '[]');
+        if (Array.isArray(current) && sync.itemId) {
+          const next = current.map(it => it.id === sync.itemId ? { ...it, isOutOfStock: sync.isOutOfStock } : it);
+          onMenuUpdate(next);
+        }
+      } catch (err) {}
+    }
+  };
+  window.addEventListener('storage', handleStorage);
+
+  // 3. Supabase Realtime Broadcast listener (Cross-Device WebSocket)
+  const channel = getKitchenOrdersChannel();
+  if (channel) {
+    try {
+      channel.on('broadcast', { event: 'menu_stock_toggle' }, (msg) => {
+        const payload = msg?.payload;
+        if (payload?.menuItems && Array.isArray(payload.menuItems)) {
+          try {
+            localStorage.setItem('cinebite_menu_items', JSON.stringify(payload.menuItems));
+          } catch (e) {}
+          onMenuUpdate(payload.menuItems);
+        } else if (payload?.itemId !== undefined) {
+          try {
+            const current = JSON.parse(localStorage.getItem('cinebite_menu_items') || '[]');
+            if (Array.isArray(current) && current.length) {
+              const next = current.map(it => it.id === payload.itemId ? { ...it, isOutOfStock: payload.isOutOfStock } : it);
+              localStorage.setItem('cinebite_menu_items', JSON.stringify(next));
+              onMenuUpdate(next);
+            }
+          } catch (e) {}
+        }
+      });
+
+      channel.on('broadcast', { event: 'menu_sync' }, (msg) => {
+        const payload = msg?.payload;
+        if (payload?.menuItems && Array.isArray(payload.menuItems)) {
+          try {
+            localStorage.setItem('cinebite_menu_items', JSON.stringify(payload.menuItems));
+          } catch (e) {}
+          onMenuUpdate(payload.menuItems);
+        }
+      });
+
+      channel.on('broadcast', { event: 'request_menu_sync' }, () => {
+        try {
+          const current = JSON.parse(localStorage.getItem('cinebite_menu_items') || '[]');
+          if (Array.isArray(current) && current.length > 0) {
+            channel.send({
+              type: 'broadcast',
+              event: 'menu_sync',
+              payload: { menuItems: current }
+            }).catch(() => {});
+          }
+        } catch (e) {}
+      });
+
+      // Request latest menu state from active tabs
+      if (channel.state === 'joined') {
+        channel.send({
+          type: 'broadcast',
+          event: 'request_menu_sync',
+          payload: { time: Date.now() }
+        }).catch(() => {});
+      } else {
+        channel.subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            channel.send({
+              type: 'broadcast',
+              event: 'request_menu_sync',
+              payload: { time: Date.now() }
+            }).catch(() => {});
+          }
+        });
+      }
+    } catch (e) {
+      console.warn('Realtime menu subscription warning:', e);
+    }
+  }
+
+  return () => {
+    window.removeEventListener('storage', handleStorage);
+    if (bc) {
+      try {
+        bc.removeEventListener('message', handleBcMessage);
+      } catch (e) {}
+    }
   };
 }

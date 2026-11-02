@@ -19,7 +19,10 @@ import {
   placeCinemaOrder, 
   isSupabaseConfigured, 
   subscribeToOrderStatus, 
-  getStaffSession 
+  getStaffSession,
+  broadcastMenuStockToggle,
+  broadcastMenuSync,
+  subscribeToMenuUpdates
 } from './lib/supabase';
 import './styles/staff.css';
 import { 
@@ -149,34 +152,27 @@ export default function App() {
           const parsed = JSON.parse(saved);
           if (Array.isArray(parsed) && parsed.length > 0) return parsed;
         }
+        localStorage.setItem('cinebite_menu_items', JSON.stringify(MENU_ITEMS));
       } catch (e) {}
     }
     return MENU_ITEMS;
   });
 
-  // Sync menu changes across multiple browser tabs / windows
+  // Sync menu changes across multiple browser tabs / windows and cross-device realtime
   useEffect(() => {
-    const handleStorage = (e) => {
-      if (e.key === 'cinebite_menu_items' && e.newValue) {
-        try {
-          const parsed = JSON.parse(e.newValue);
-          if (Array.isArray(parsed)) setMenuItems(parsed);
-        } catch (err) {}
+    const unsub = subscribeToMenuUpdates((fresh) => {
+      if (Array.isArray(fresh) && fresh.length > 0) {
+        setMenuItems(fresh);
       }
-    };
-    window.addEventListener('storage', handleStorage);
-    return () => window.removeEventListener('storage', handleStorage);
+    });
+    return unsub;
   }, []);
 
   // Add new food item from Kitchen Dashboard
   const handleAddNewItem = useCallback((newItem) => {
     setMenuItems((prev) => {
       const updated = [newItem, ...prev];
-      if (typeof window !== 'undefined') {
-        try {
-          localStorage.setItem('cinebite_menu_items', JSON.stringify(updated));
-        } catch (e) {}
-      }
+      broadcastMenuSync(updated);
       return updated;
     });
   }, []);
@@ -184,14 +180,15 @@ export default function App() {
   // Toggle item in/out of stock from Kitchen Dashboard
   const handleToggleStock = useCallback((itemId) => {
     setMenuItems((prev) => {
-      const updated = prev.map((item) =>
-        item.id === itemId ? { ...item, isOutOfStock: !item.isOutOfStock } : item
-      );
-      if (typeof window !== 'undefined') {
-        try {
-          localStorage.setItem('cinebite_menu_items', JSON.stringify(updated));
-        } catch (e) {}
-      }
+      let nextState = false;
+      const updated = prev.map((item) => {
+        if (item.id === itemId) {
+          nextState = !item.isOutOfStock;
+          return { ...item, isOutOfStock: nextState };
+        }
+        return item;
+      });
+      broadcastMenuStockToggle(itemId, nextState, updated);
       return updated;
     });
   }, []);
@@ -201,8 +198,41 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [vegOnly, setVegOnly] = useState(false);
 
-  // 6. Active Order & Live Tracker State
-  const [activeOrder, setActiveOrder] = useState(null);
+  // 6. Active Order & Live Tracker State (Persisted across Safari refreshes with 3-hour TTL)
+  const [activeOrder, setActiveOrder] = useState(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('cinebite_customer_active_order');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed?.order && (Date.now() - (parsed.savedAt || 0) < 3 * 60 * 60 * 1000)) {
+            return parsed.order;
+          }
+        }
+      } catch (e) {}
+    }
+    return null;
+  });
+
+  const updateActiveOrder = useCallback((updater) => {
+    setActiveOrder((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      if (typeof window !== 'undefined') {
+        try {
+          if (next) {
+            localStorage.setItem('cinebite_customer_active_order', JSON.stringify({
+              order: next,
+              savedAt: Date.now()
+            }));
+          } else {
+            localStorage.removeItem('cinebite_customer_active_order');
+          }
+        } catch (e) {}
+      }
+      return next;
+    });
+  }, []);
+
   const [isOrderModalOpen, setIsOrderModalOpen] = useState(false);
   const [orderModalView, setOrderModalView] = useState('confirmation'); // 'confirmation' | 'tracker'
 
@@ -218,7 +248,7 @@ export default function App() {
         orderNumber: activeOrder.orderId,
         accessToken: activeOrder.accessToken
       }, (newStatus) => {
-        setActiveOrder((prev) => {
+        updateActiveOrder((prev) => {
           if (!prev) return null;
           if (prev.status === newStatus) return prev;
           return { ...prev, status: newStatus };
@@ -226,7 +256,7 @@ export default function App() {
       });
       return unsubscribe;
     }
-  }, [activeOrder?.dbOrderId, activeOrder?.orderId, activeOrder?.accessToken]);
+  }, [activeOrder?.dbOrderId, activeOrder?.orderId, activeOrder?.accessToken, updateActiveOrder]);
 
   // Open Size & Weight Selector Modal (for food categories with weight specification)
   const handleOpenSizeModal = (item) => {
@@ -316,7 +346,7 @@ export default function App() {
         placedAt: result.placedAt || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       };
 
-      setActiveOrder(confirmedOrder);
+      updateActiveOrder(confirmedOrder);
       setCart([]);
       setIsCartOpen(false);
       setOrderModalView('confirmation');
