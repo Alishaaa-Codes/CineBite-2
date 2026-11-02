@@ -41,26 +41,36 @@ export default function App() {
     return 'customer';
   });
 
-  // 2. Staff Authentication State
-  const [staffAuth, setStaffAuth] = useState(null);
-
-  // Check existing staff session on mount
-  useEffect(() => {
-    async function checkAuth() {
+  // 2. Staff Authentication State (Persists across shift refresh via sessionStorage)
+  const [staffAuth, setStaffAuth] = useState(() => {
+    if (typeof window !== 'undefined') {
       try {
-        const sessionRes = await getStaffSession();
-        if (sessionRes?.isStaff && sessionRes?.session?.user) {
-          setStaffAuth({
-            user: sessionRes.session.user,
-            profile: sessionRes.staffProfile,
-            isDemo: false
-          });
-        }
-      } catch (err) {
-        console.warn('Session check warning:', err);
-      }
+        const saved = sessionStorage.getItem('cinebite_staff_auth');
+        if (saved) return JSON.parse(saved);
+      } catch (e) {}
     }
-    checkAuth();
+    return null;
+  });
+
+  const handleStaffLoginSuccess = useCallback((auth) => {
+    setStaffAuth(auth);
+    if (typeof window !== 'undefined') {
+      try {
+        sessionStorage.setItem('cinebite_staff_auth', JSON.stringify(auth));
+      } catch (e) {}
+    }
+  }, []);
+
+  const handleStaffLogout = useCallback(async () => {
+    setStaffAuth(null);
+    if (typeof window !== 'undefined') {
+      try {
+        sessionStorage.removeItem('cinebite_staff_auth');
+      } catch (e) {}
+    }
+    try {
+      await signOutStaff();
+    } catch (e) {}
   }, []);
 
   // Listen for browser Back/Forward navigation
@@ -297,7 +307,7 @@ export default function App() {
     if (!staffAuth) {
       return (
         <StaffLogin 
-          onLoginSuccess={(auth) => setStaffAuth(auth)}
+          onLoginSuccess={handleStaffLoginSuccess}
           onSwitchToCustomer={() => navigateTo('customer')}
         />
       );
@@ -309,7 +319,7 @@ export default function App() {
           staffUser={staffAuth.user}
           staffProfile={staffAuth.profile}
           isDemoMode={staffAuth.isDemo}
-          onLogout={() => setStaffAuth(null)}
+          onLogout={handleStaffLogout}
           onSwitchToCustomer={() => navigateTo('customer')}
           onOpenQRModal={() => setIsQRModalOpen(true)}
         />

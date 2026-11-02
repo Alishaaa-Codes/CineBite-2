@@ -54,18 +54,6 @@ export default function StaffLogin({ onLoginSuccess, onSwitchToCustomer }) {
     }
   };
 
-  const handleDemoAccess = () => {
-    onLoginSuccess({
-      user: { id: 'demo-staff-chef', email: 'chef@cinebite.cinema' },
-      profile: {
-        id: 'demo-staff-chef',
-        role: 'kitchen_staff',
-        full_name: 'Executive Chef',
-        theatre_id: '11111111-1111-1111-1111-111111111111'
-      },
-      isDemo: true
-    });
-  };
 
   const sqlSample = `-- 1. In Supabase Dashboard -> Authentication -> Users, click "Add User" (e.g. staff@cinebite.com)
 -- 2. Copy the newly created User UUID, then run this in the Supabase SQL Editor:
@@ -117,71 +105,49 @@ ON CONFLICT (id) DO UPDATE SET role = EXCLUDED.role;`;
           </p>
         </div>
 
-        {/* Instant Access Banner */}
+        {/* Security Warning Notice */}
         <div style={{
-          background: 'linear-gradient(135deg, rgba(255, 159, 28, 0.15), rgba(229, 9, 20, 0.15))',
-          border: '1px solid rgba(255, 159, 28, 0.4)',
-          borderRadius: 'var(--radius-lg)',
-          padding: '1rem',
+          background: 'rgba(229, 9, 20, 0.08)',
+          border: '1px solid rgba(229, 9, 20, 0.25)',
+          borderRadius: 'var(--radius-md)',
+          padding: '0.85rem 1rem',
           marginBottom: '1.5rem',
-          textAlign: 'center'
+          display: 'flex',
+          alignItems: 'center',
+          gap: '10px'
         }}>
-          <div style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--text-orange)', marginBottom: '0.35rem' }}>
-            ⚡ Instant Access (No Password Required)
+          <Lock size={18} color="var(--red-primary)" style={{ flexShrink: 0 }} />
+          <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+            <strong style={{ color: '#FFFFFF', display: 'block', marginBottom: '2px' }}>
+              Restricted Area: Cinema Staff Only
+            </strong>
+            Enter authorized staff credentials or master passcode to access live orders.
           </div>
-          <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.75rem' }}>
-            Click below to instantly access the live kitchen dashboard as Head Chef:
-          </p>
-          <button 
-            type="button" 
-            className="staff-login-btn staff-demo-btn"
-            style={{ margin: 0, background: 'linear-gradient(135deg, #FF9F1C, #E50914)' }}
-            onClick={handleDemoAccess}
-          >
-            <Sparkles size={16} />
-            <span>Enter Kitchen Dashboard Now</span>
-          </button>
-        </div>
-
-        <div style={{ 
-          display: 'flex', 
-          alignItems: 'center', 
-          gap: '10px', 
-          margin: '1.25rem 0',
-          color: 'var(--text-muted)',
-          fontSize: '0.72rem',
-          textTransform: 'uppercase',
-          letterSpacing: '1px',
-          fontWeight: 700
-        }}>
-          <div style={{ flex: 1, height: '1px', background: 'var(--border-color)' }} />
-          <span>Or Supabase Auth Account</span>
-          <div style={{ flex: 1, height: '1px', background: 'var(--border-color)' }} />
         </div>
 
         {/* Login Form */}
         <form onSubmit={handleLogin}>
           <div className="staff-form-group">
             <label className="staff-form-label" htmlFor="staff-email">
-              Staff Email Address
+              Staff Email / ID
             </label>
             <div className="staff-input-wrapper">
               <Mail size={16} className="staff-input-icon" />
               <input
                 id="staff-email"
-                type="email"
+                type="text"
                 className="staff-input"
-                placeholder="staff@cinema.com"
+                placeholder="staff@cinebite.com or Chef ID"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                autoComplete="email"
+                autoComplete="username"
               />
             </div>
           </div>
 
           <div className="staff-form-group">
             <label className="staff-form-label" htmlFor="staff-password">
-              Password
+              Staff Password / Security PIN
             </label>
             <div className="staff-input-wrapper">
               <Lock size={16} className="staff-input-icon" />
@@ -189,7 +155,7 @@ ON CONFLICT (id) DO UPDATE SET role = EXCLUDED.role;`;
                 id="staff-password"
                 type="password"
                 className="staff-input"
-                placeholder="••••••••••••"
+                placeholder="Enter password or staff PIN"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 autoComplete="current-password"
@@ -203,10 +169,11 @@ ON CONFLICT (id) DO UPDATE SET role = EXCLUDED.role;`;
             disabled={isLoading}
           >
             {isLoading ? (
-              <span>Authenticating...</span>
+              <span>Verifying Authorization...</span>
             ) : (
               <>
-                <span>Sign In with Supabase Auth</span>
+                <Lock size={16} />
+                <span>Sign In to Kitchen Dashboard</span>
                 <ArrowRight size={16} />
               </>
             )}
@@ -217,28 +184,25 @@ ON CONFLICT (id) DO UPDATE SET role = EXCLUDED.role;`;
         {errorMessage && (
           <div className="staff-error-box" style={{ flexDirection: 'column', gap: '8px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <AlertCircle size={18} style={{ flexShrink: 0 }} />
+              <AlertCircle size={18} style={{ flexShrink: 0, color: 'var(--red-primary)' }} />
               <div>{errorMessage}</div>
             </div>
-            <button
-              type="button"
-              onClick={handleDemoAccess}
-              style={{
-                background: 'var(--red-gradient)',
-                border: 'none',
-                color: '#FFFFFF',
-                padding: '6px 12px',
-                borderRadius: 'var(--radius-sm)',
-                fontSize: '0.75rem',
-                fontWeight: 700,
-                cursor: 'pointer',
-                marginTop: '4px'
-              }}
-            >
-              👉 Click here to enter Kitchen Dashboard directly
-            </button>
           </div>
         )}
+
+        {/* Authorized Passcode Reminder for Cinema Manager */}
+        <div style={{
+          marginTop: '1.25rem',
+          padding: '0.75rem',
+          background: 'rgba(255, 159, 28, 0.08)',
+          border: '1px dashed rgba(255, 159, 28, 0.35)',
+          borderRadius: 'var(--radius-sm)',
+          fontSize: '0.72rem',
+          color: 'var(--text-muted)',
+          textAlign: 'center'
+        }}>
+          💡 <strong>Cinema Staff Passcode:</strong> <code style={{ color: 'var(--text-orange)', fontWeight: 700 }}>cinebite2026</code> (or your registered Supabase staff account)
+        </div>
 
         {/* Expandable Setup Instructions Guide */}
         <div style={{ marginTop: '1.5rem', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '1rem' }}>

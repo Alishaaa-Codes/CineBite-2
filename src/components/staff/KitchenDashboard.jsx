@@ -469,16 +469,6 @@ export default function KitchenDashboard({
             </div>
             <div className="sidebar-nav-list">
               <button
-                className={`sidebar-nav-btn ${activeTab === 'all' ? 'active' : ''}`}
-                onClick={() => {
-                  setActiveTab('all');
-                  setIsSidebarOpen(false);
-                }}
-              >
-                <span>All Orders</span>
-                <span className="sidebar-count-badge">{counts.all}</span>
-              </button>
-              <button
                 className={`sidebar-nav-btn ${activeTab === 'received' ? 'active' : ''}`}
                 onClick={() => {
                   setActiveTab('received');
@@ -518,6 +508,16 @@ export default function KitchenDashboard({
                 <span>✓ Delivered</span>
                 <span className="sidebar-count-badge">{counts.delivered}</span>
               </button>
+              <button
+                className={`sidebar-nav-btn ${activeTab === 'all' ? 'active' : ''}`}
+                onClick={() => {
+                  setActiveTab('all');
+                  setIsSidebarOpen(false);
+                }}
+              >
+                <span>📋 Total Orders</span>
+                <span className="sidebar-count-badge">{counts.all}</span>
+              </button>
             </div>
           </div>
 
@@ -541,10 +541,6 @@ export default function KitchenDashboard({
         <div className="kitchen-main-feed">
           {/* Stats Strip */}
           <div className="kitchen-stats-strip">
-            <div className="kpi-card kpi-all" onClick={() => setActiveTab('all')} style={{ cursor: 'pointer' }}>
-              <span className="kpi-label">Total Active</span>
-              <span className="kpi-value">{counts.all}</span>
-            </div>
             <div className="kpi-card kpi-received" onClick={() => setActiveTab('received')} style={{ cursor: 'pointer' }}>
               <span className="kpi-label">● Received</span>
               <span className="kpi-value">{counts.received}</span>
@@ -561,18 +557,15 @@ export default function KitchenDashboard({
               <span className="kpi-label">✓ Delivered</span>
               <span className="kpi-value">{counts.delivered}</span>
             </div>
+            <div className="kpi-card kpi-all" onClick={() => setActiveTab('all')} style={{ cursor: 'pointer' }}>
+              <span className="kpi-label">📋 Total Orders</span>
+              <span className="kpi-value">{counts.all}</span>
+            </div>
           </div>
 
           {/* Filter & Control Bar */}
           <div className="kitchen-controls-bar">
             <div className="status-tabs-group">
-              <button
-                className={`status-tab ${activeTab === 'all' ? 'active' : ''}`}
-                onClick={() => setActiveTab('all')}
-              >
-                <span>All Orders</span>
-                <span className="status-badge-count">{counts.all}</span>
-              </button>
               <button
                 className={`status-tab ${activeTab === 'received' ? 'active' : ''}`}
                 onClick={() => setActiveTab('received')}
@@ -600,6 +593,13 @@ export default function KitchenDashboard({
               >
                 <span>Delivered</span>
                 <span className="status-badge-count">{counts.delivered}</span>
+              </button>
+              <button
+                className={`status-tab ${activeTab === 'all' ? 'active' : ''}`}
+                onClick={() => setActiveTab('all')}
+              >
+                <span>Total Orders</span>
+                <span className="status-badge-count">{counts.all}</span>
               </button>
             </div>
 
