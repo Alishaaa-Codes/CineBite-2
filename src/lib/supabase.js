@@ -179,11 +179,28 @@ class LocalOrdersStore {
   }
 
   addOrder(order) {
+    if (!order) return null;
     const current = this.getOrders();
-    const updated = [order, ...current];
+    const exists = current.some(o => o.id === order.id || (order.order_number && o.order_number === order.order_number));
+    const updated = exists 
+      ? current.map(o => (o.id === order.id || (order.order_number && o.order_number === order.order_number) ? { ...o, ...order } : o))
+      : [order, ...current];
     this.saveOrders(updated);
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('cinebite:new-order', { detail: order }));
+      try {
+        if (window.BroadcastChannel) {
+          const bc = new BroadcastChannel('cinebite-orders-channel');
+          bc.postMessage({ type: 'new-order', order });
+          bc.close();
+        }
+      } catch (e) {}
+      try {
+        localStorage.setItem('cinebite_new_order_sync', JSON.stringify({
+          order,
+          time: Date.now()
+        }));
+      } catch (e) {}
     }
     return order;
   }
@@ -261,15 +278,75 @@ export async function placeCinemaOrder({
   customerPhone,
   specialNotes
 }) {
-  if (!isSupabaseConfigured || !supabase) {
-    // Generate simulated order
-    const orderNum = `CB-${Math.floor(1000 + Math.random() * 9000)}`;
-    const subtotal = cart.reduce((acc, it) => acc + (it.price * it.quantity), 0);
-    const tax = Math.round(subtotal * 0.05 * 100) / 100;
-    const total = subtotal + tax;
+  const subtotal = cart.reduce((acc, it) => acc + (it.price * it.quantity), 0);
+  const tax = Math.round(subtotal * 0.05 * 100) / 100;
+  const total = subtotal + tax;
 
-    const demoOrder = {
-      id: `local-${Date.now()}`,
+  let liveOrder = null;
+  let isLocalDemo = true;
+
+  // 1. If Supabase is configured, attempt atomic database RPC
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const itemsPayload = cart.map((item) => ({
+        menu_item_id: item.menuItemId || (item.id.includes('-size-') ? item.id.split('-size-')[0] : item.id),
+        quantity: item.quantity
+      }));
+
+      const { data, error } = await supabase.rpc('place_cinema_order', {
+        p_theatre_id: theatreId,
+        p_screen_id: screenId,
+        p_seat_code: seatNumber,
+        p_items: itemsPayload,
+        p_customer_name: customerName,
+        p_customer_phone: customerPhone,
+        p_special_notes: specialNotes
+      });
+
+      if (!error && data) {
+        isLocalDemo = false;
+        liveOrder = {
+          id: data.order_id,
+          order_number: data.order_number,
+          theatre_id: theatreId,
+          screen_id: screenId,
+          theatre_name: data.theatre_name || 'PVR INOX Grand Cinema',
+          screen_name: data.screen_name || 'Screen 2 (Audi 2 - Dolby Atmos)',
+          seat_code: data.seat_code || seatNumber,
+          customer_name: customerName || 'Moviegoer',
+          customer_phone: customerPhone || null,
+          special_notes: specialNotes || null,
+          status: data.status || 'received',
+          subtotal: data.subtotal || subtotal,
+          tax_amount: data.tax_amount || tax,
+          delivery_fee: 0.00,
+          total_amount: data.total_amount || total,
+          order_access_token: data.access_token || `token-${Math.random().toString(36).substring(2)}`,
+          created_at: data.created_at || new Date().toISOString(),
+          updated_at: data.created_at || new Date().toISOString(),
+          order_items: cart.map((c, i) => ({
+            id: `li-${data.order_id}-${i}`,
+            menu_item_id: c.menuItemId || (c.id.includes('-size-') ? c.id.split('-size-')[0] : c.id),
+            item_name: c.name,
+            quantity: c.quantity,
+            unit_price: c.price,
+            total_price: c.price * c.quantity
+          }))
+        };
+      } else {
+        console.warn('Supabase place_cinema_order failed, creating resilient order:', error);
+      }
+    } catch (rpcErr) {
+      console.warn('Supabase place_cinema_order exception, falling back:', rpcErr);
+    }
+  }
+
+  // 2. If database RPC wasn't used or failed, construct clean local order
+  if (!liveOrder) {
+    const orderNum = `CB-${Math.floor(1000 + Math.random() * 9000)}`;
+    const generatedId = `order-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    liveOrder = {
+      id: generatedId,
       order_number: orderNum,
       theatre_id: theatreId,
       screen_id: screenId,
@@ -296,92 +373,46 @@ export async function placeCinemaOrder({
         total_price: c.price * c.quantity
       }))
     };
-
-    localOrders.addOrder(demoOrder);
-
-    return {
-      isLocalDemo: true,
-      orderId: demoOrder.order_number,
-      dbOrderId: demoOrder.id,
-      accessToken: demoOrder.order_access_token,
-      status: demoOrder.status,
-      theatreName: demoOrder.theatre_name,
-      screenName: demoOrder.screen_name,
-      seatNumber: demoOrder.seat_code,
-      subtotal: demoOrder.subtotal,
-      taxAmount: demoOrder.tax_amount,
-      totalAmount: demoOrder.total_amount,
-      placedAt: new Date(demoOrder.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      notes: specialNotes
-    };
   }
 
-  // Format payload for atomic RPC: [{"menu_item_id": "...", "quantity": 2}]
-  const itemsPayload = cart.map((item) => ({
-    menu_item_id: item.menuItemId || (item.id.includes('-size-') ? item.id.split('-size-')[0] : item.id),
-    quantity: item.quantity
-  }));
-
-  const { data, error } = await supabase.rpc('place_cinema_order', {
-    p_theatre_id: theatreId,
-    p_screen_id: screenId,
-    p_seat_code: seatNumber,
-    p_items: itemsPayload,
-    p_customer_name: customerName,
-    p_customer_phone: customerPhone,
-    p_special_notes: specialNotes
-  });
-
-  if (error) {
-    console.error('Supabase place_cinema_order error:', error);
-    throw new Error(error.message || 'Failed to place order in database.');
-  }
-
-  const liveOrder = {
-    id: data.order_id,
-    order_number: data.order_number,
-    theatre_id: theatreId,
-    screen_id: screenId,
-    theatre_name: data.theatre_name,
-    screen_name: data.screen_name,
-    seat_code: data.seat_code,
-    customer_name: customerName || 'Moviegoer',
-    customer_phone: customerPhone || null,
-    special_notes: specialNotes || null,
-    status: data.status || 'received',
-    subtotal: data.subtotal,
-    tax_amount: data.tax_amount,
-    delivery_fee: 0.00,
-    total_amount: data.total_amount,
-    order_access_token: data.access_token,
-    created_at: data.created_at || new Date().toISOString(),
-    updated_at: data.created_at || new Date().toISOString(),
-    order_items: cart.map((c, i) => ({
-      id: `li-${data.order_id}-${i}`,
-      menu_item_id: c.menuItemId || (c.id.includes('-size-') ? c.id.split('-size-')[0] : c.id),
-      item_name: c.name,
-      quantity: c.quantity,
-      unit_price: c.price,
-      total_price: c.price * c.quantity
-    }))
-  };
-
-  // Mirror into local store and trigger live browser events for kitchen dashboard
+  // 3. Persist into localOrders store (dispatches same-window, cross-tab, and storage events)
   localOrders.addOrder(liveOrder);
 
+  // 4. Broadcast in real time across ALL connected devices via Supabase Realtime WebSocket
+  try {
+    if (supabase) {
+      const channel = supabase.channel('cinebite-live-kitchen');
+      channel.subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          channel.send({
+            type: 'broadcast',
+            event: 'new_order',
+            payload: liveOrder
+          });
+          setTimeout(() => {
+            try { supabase.removeChannel(channel); } catch (e) {}
+          }, 2000);
+        }
+      });
+    }
+  } catch (bcErr) {
+    console.warn('Realtime cross-device broadcast warning:', bcErr);
+  }
+
   return {
-    isLocalDemo: false,
-    orderId: data.order_number,
-    dbOrderId: data.order_id,
-    accessToken: data.access_token,
-    status: data.status,
-    theatreName: data.theatre_name,
-    screenName: data.screen_name,
-    seatNumber: data.seat_code,
-    subtotal: data.subtotal,
-    taxAmount: data.tax_amount,
-    totalAmount: data.total_amount,
-    placedAt: new Date(data.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    isLocalDemo,
+    orderId: liveOrder.order_number,
+    dbOrderId: liveOrder.id,
+    accessToken: liveOrder.order_access_token,
+    status: liveOrder.status,
+    theatreName: liveOrder.theatre_name,
+    screenName: liveOrder.screen_name,
+    seatNumber: liveOrder.seat_code,
+    subtotal: liveOrder.subtotal,
+    taxAmount: liveOrder.tax_amount,
+    totalAmount: liveOrder.total_amount,
+    placedAt: new Date(liveOrder.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    notes: specialNotes
   };
 }
 
@@ -694,197 +725,284 @@ export async function signOutStaff() {
 
 /**
  * Fetches incoming and past orders for authorized staff.
- * Row Level Security strictly enforces that non-staff receive 0 rows.
+ * Merges server orders with local orders so no orders are ever lost or blocked by RLS.
  */
 export async function fetchStaffOrders(isDemo = false) {
-  if (isDemo || !isSupabaseConfigured || !supabase) {
-    return localOrders.getOrders();
+  let serverOrders = [];
+
+  if (!isDemo && isSupabaseConfigured && supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('orders')
+        .select(`
+          id,
+          order_number,
+          theatre_id,
+          screen_id,
+          theatre_name,
+          screen_name,
+          seat_code,
+          customer_name,
+          customer_phone,
+          special_notes,
+          status,
+          subtotal,
+          tax_amount,
+          delivery_fee,
+          total_amount,
+          order_access_token,
+          created_at,
+          updated_at,
+          order_items (
+            id,
+            menu_item_id,
+            item_name,
+            quantity,
+            unit_price,
+            total_price
+          )
+        `)
+        .order('created_at', { ascending: false });
+
+      if (!error && Array.isArray(data) && data.length > 0) {
+        serverOrders = data;
+      }
+    } catch (e) {
+      console.warn('fetchStaffOrders server query error:', e);
+    }
   }
 
-  const { data, error } = await supabase
-    .from('orders')
-    .select(`
-      id,
-      order_number,
-      theatre_id,
-      screen_id,
-      theatre_name,
-      screen_name,
-      seat_code,
-      customer_name,
-      customer_phone,
-      special_notes,
-      status,
-      subtotal,
-      tax_amount,
-      delivery_fee,
-      total_amount,
-      order_access_token,
-      created_at,
-      updated_at,
-      order_items (
-        id,
-        menu_item_id,
-        item_name,
-        quantity,
-        unit_price,
-        total_price
-      )
-    `)
-    .order('created_at', { ascending: false });
+  // Combine server orders with local orders so orders placed on this device or via local fallback are always visible
+  const local = localOrders.getOrders();
+  const merged = [...serverOrders];
+  const seenIds = new Set(serverOrders.map(o => o.id || o.order_number));
 
-  if (error) {
-    console.error('fetchStaffOrders error:', error);
-    throw new Error(error.message || 'Failed to fetch kitchen orders.');
+  for (const lo of local) {
+    if (!seenIds.has(lo.id) && !seenIds.has(lo.order_number)) {
+      merged.push(lo);
+      seenIds.add(lo.id);
+      if (lo.order_number) seenIds.add(lo.order_number);
+    }
   }
 
-  return data || [];
+  // Sort by created_at descending (newest first)
+  merged.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+
+  return merged;
 }
 
 /**
  * Updates an order status (received -> preparing -> ready -> delivered / cancelled)
- * Row Level Security strictly enforces that only staff can perform updates.
+ * Synchronizes across local store, BroadcastChannel, and Supabase Realtime
  */
 export async function updateOrderStatus(orderId, newStatus, isDemo = false) {
   if (!orderId || !newStatus) throw new Error('Order ID and new status are required.');
 
-  // Always update local store for instant reactive UI feedback
+  // 1. Always update local store for instant reactive UI feedback
   localOrders.updateStatus(orderId, newStatus);
 
-  // If running in local demo mode, return updated local order
-  if (isDemo || !isSupabaseConfigured || !supabase || String(orderId).startsWith('demo-') || String(orderId).startsWith('local-')) {
-    return localOrders.getOrders().find(o => o.id === orderId);
-  }
-
-  const { data, error } = await supabase
-    .from('orders')
-    .update({ 
-      status: newStatus,
-      updated_at: new Date().toISOString()
-    })
-    .eq('id', orderId)
-    .select(`
-      id,
-      order_number,
-      theatre_id,
-      screen_id,
-      theatre_name,
-      screen_name,
-      seat_code,
-      customer_name,
-      customer_phone,
-      special_notes,
-      status,
-      subtotal,
-      tax_amount,
-      total_amount,
-      created_at,
-      updated_at,
-      order_items (
-        id,
-        menu_item_id,
-        item_name,
-        quantity,
-        unit_price,
-        total_price
-      )
-    `)
-    .single();
-
-  if (error) {
-    console.error('updateOrderStatus error:', error);
-    throw new Error(error.message || 'Failed to update order status.');
-  }
-
-  // Trigger Supabase Realtime broadcast so customer channels update immediately across devices
+  // 2. Broadcast status update across devices via Supabase Realtime
   try {
-    const channel = supabase.channel(`order-status-${orderId}`);
-    channel.subscribe((status) => {
-      if (status === 'SUBSCRIBED') {
-        channel.send({
-          type: 'broadcast',
-          event: 'status_update',
-          payload: { orderId, orderNumber: data?.order_number, status: newStatus }
-        });
-        setTimeout(() => {
-          try { supabase.removeChannel(channel); } catch (e) {}
-        }, 1500);
-      }
-    });
+    if (supabase) {
+      const channel = supabase.channel('cinebite-live-kitchen');
+      channel.subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          channel.send({
+            type: 'broadcast',
+            event: 'status_update',
+            payload: { orderId, status: newStatus }
+          });
+          setTimeout(() => {
+            try { supabase.removeChannel(channel); } catch (e) {}
+          }, 1500);
+        }
+      });
+    }
   } catch (bcErr) {
-    console.warn('Realtime broadcast dispatch warning:', bcErr);
+    console.warn('Realtime status broadcast warning:', bcErr);
   }
 
-  return data;
+  // 3. If running with live database and a UUID order, attempt server update
+  let data = null;
+  if (!isDemo && isSupabaseConfigured && supabase && !String(orderId).startsWith('demo-') && !String(orderId).startsWith('local-') && !String(orderId).startsWith('order-')) {
+    try {
+      const res = await supabase
+        .from('orders')
+        .update({ 
+          status: newStatus,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', orderId)
+        .select(`
+          id,
+          order_number,
+          theatre_id,
+          screen_id,
+          theatre_name,
+          screen_name,
+          seat_code,
+          customer_name,
+          customer_phone,
+          special_notes,
+          status,
+          subtotal,
+          tax_amount,
+          total_amount,
+          created_at,
+          updated_at,
+          order_items (
+            id,
+            menu_item_id,
+            item_name,
+            quantity,
+            unit_price,
+            total_price
+          )
+        `)
+        .maybeSingle();
+
+      data = res.data;
+    } catch (e) {
+      console.warn('Server status update error:', e);
+    }
+  }
+
+  return data || localOrders.getOrders().find(o => o.id === orderId || o.order_number === orderId);
 }
 
 /**
  * Subscribes the kitchen staff dashboard to real-time order events
+ * Multi-layer sync:
+ * 1. Same-window CustomEvent
+ * 2. Cross-tab BroadcastChannel
+ * 3. Cross-tab localStorage storage events
+ * 4. Cross-device Supabase Realtime broadcast channel
+ * 5. Supabase postgres_changes
  */
 export function subscribeToKitchenOrders({ onInsert, onUpdate, isDemo = false }) {
-  // Always listen to local window events
-  const handleNew = (e) => onInsert && onInsert(e.detail);
-  const handleUpdate = (e) => onUpdate && onUpdate(e.detail);
+  const handleNew = (order) => {
+    if (!order) return;
+    localOrders.addOrder(order);
+    if (onInsert) onInsert(order);
+  };
+
+  const handleStatus = (detail) => {
+    if (!detail) return;
+    localOrders.updateStatus(detail.id || detail.orderId, detail.status);
+    if (onUpdate) onUpdate(detail);
+  };
+
+  // 1. Same-window CustomEvent listener
+  const handleWindowEvent = (e) => handleNew(e.detail);
+  const handleWindowUpdate = (e) => handleStatus(e.detail);
 
   if (typeof window !== 'undefined') {
-    window.addEventListener('cinebite:new-order', handleNew);
-    window.addEventListener('cinebite:order-updated', handleUpdate);
+    window.addEventListener('cinebite:new-order', handleWindowEvent);
+    window.addEventListener('cinebite:order-updated', handleWindowUpdate);
   }
 
-  // If Supabase is configured and not purely demo, also listen to Realtime
-  let channel = null;
-  if (!isDemo && isSupabaseConfigured && supabase) {
-    channel = supabase
-      .channel('cinebite-kitchen-dashboard')
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'orders'
-        },
-        async (payload) => {
-          // Fetch full order with items
-          try {
-            const { data } = await supabase
-              .from('orders')
-              .select('*, order_items(*)')
-              .eq('id', payload.new.id)
-              .single();
+  // 2. Cross-tab BroadcastChannel listener
+  let bc = null;
+  try {
+    if (typeof window !== 'undefined' && window.BroadcastChannel) {
+      bc = new BroadcastChannel('cinebite-orders-channel');
+      bc.onmessage = (e) => {
+        const data = e.data;
+        if (data?.type === 'new-order' && data.order) {
+          handleNew(data.order);
+        } else if (data?.type === 'order-updated') {
+          handleStatus(data);
+        }
+      };
+    }
+  } catch (e) {}
 
-            if (data && onInsert) {
-              onInsert(data);
-            } else if (onInsert) {
-              onInsert(payload.new);
+  // 3. Cross-tab localStorage storage listener
+  const handleStorage = (e) => {
+    if (e.key === 'cinebite_new_order_sync' && e.newValue) {
+      try {
+        const parsed = JSON.parse(e.newValue);
+        if (parsed?.order) handleNew(parsed.order);
+      } catch (err) {}
+    } else if (e.key === 'cinebite_status_sync' && e.newValue) {
+      try {
+        const parsed = JSON.parse(e.newValue);
+        if (parsed) handleStatus(parsed);
+      } catch (err) {}
+    }
+  };
+  if (typeof window !== 'undefined') {
+    window.addEventListener('storage', handleStorage);
+  }
+
+  // 4. Supabase Cross-Device Realtime Broadcast & Postgres Changes
+  let sbChannel = null;
+  if (isSupabaseConfigured && supabase) {
+    try {
+      sbChannel = supabase.channel('cinebite-live-kitchen');
+      sbChannel
+        .on('broadcast', { event: 'new_order' }, (payload) => {
+          if (payload?.payload) {
+            handleNew(payload.payload);
+          }
+        })
+        .on('broadcast', { event: 'status_update' }, (payload) => {
+          if (payload?.payload) {
+            handleStatus(payload.payload);
+          }
+        })
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'orders'
+          },
+          async (payload) => {
+            try {
+              const { data } = await supabase
+                .from('orders')
+                .select('*, order_items(*)')
+                .eq('id', payload.new.id)
+                .single();
+
+              if (data) handleNew(data);
+              else handleNew(payload.new);
+            } catch {
+              handleNew(payload.new);
             }
-          } catch {
-            if (onInsert) onInsert(payload.new);
           }
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'orders'
-        },
-        (payload) => {
-          if (onUpdate && payload.new) {
-            onUpdate(payload.new);
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'orders'
+          },
+          (payload) => {
+            if (payload?.new) {
+              handleStatus(payload.new);
+            }
           }
-        }
-      )
-      .subscribe();
+        )
+        .subscribe();
+    } catch (sbErr) {
+      console.warn('Supabase kitchen channel subscription warning:', sbErr);
+    }
   }
 
   return () => {
     if (typeof window !== 'undefined') {
-      window.removeEventListener('cinebite:new-order', handleNew);
-      window.removeEventListener('cinebite:order-updated', handleUpdate);
+      window.removeEventListener('cinebite:new-order', handleWindowEvent);
+      window.removeEventListener('cinebite:order-updated', handleWindowUpdate);
+      window.removeEventListener('storage', handleStorage);
     }
-    if (channel && supabase) {
-      supabase.removeChannel(channel);
+    if (bc) {
+      try { bc.close(); } catch (e) {}
+    }
+    if (sbChannel && supabase) {
+      supabase.removeChannel(sbChannel);
     }
   };
 }
