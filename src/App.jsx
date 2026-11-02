@@ -140,7 +140,63 @@ export default function App() {
     return false;
   });
 
-  // 5. Category & Filter States
+  // 5. Dynamic Menu Items (Persisted in localStorage & synced across browser tabs)
+  const [menuItems, setMenuItems] = useState(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('cinebite_menu_items');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        }
+      } catch (e) {}
+    }
+    return MENU_ITEMS;
+  });
+
+  // Sync menu changes across multiple browser tabs / windows
+  useEffect(() => {
+    const handleStorage = (e) => {
+      if (e.key === 'cinebite_menu_items' && e.newValue) {
+        try {
+          const parsed = JSON.parse(e.newValue);
+          if (Array.isArray(parsed)) setMenuItems(parsed);
+        } catch (err) {}
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, []);
+
+  // Add new food item from Kitchen Dashboard
+  const handleAddNewItem = useCallback((newItem) => {
+    setMenuItems((prev) => {
+      const updated = [newItem, ...prev];
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem('cinebite_menu_items', JSON.stringify(updated));
+        } catch (e) {}
+      }
+      return updated;
+    });
+  }, []);
+
+  // Toggle item in/out of stock from Kitchen Dashboard
+  const handleToggleStock = useCallback((itemId) => {
+    setMenuItems((prev) => {
+      const updated = prev.map((item) =>
+        item.id === itemId ? { ...item, isOutOfStock: !item.isOutOfStock } : item
+      );
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem('cinebite_menu_items', JSON.stringify(updated));
+        } catch (e) {}
+      }
+      return updated;
+    });
+  }, []);
+
+  // 6. Category & Filter States
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [vegOnly, setVegOnly] = useState(false);
@@ -286,7 +342,7 @@ export default function App() {
 
   // Filtered Menu Items
   const filteredItems = useMemo(() => {
-    return MENU_ITEMS.filter((item) => {
+    return menuItems.filter((item) => {
       const matchesCategory =
         selectedCategory === 'all' || item.categoryId === selectedCategory;
       const matchesSearch =
@@ -296,7 +352,7 @@ export default function App() {
 
       return matchesCategory && matchesSearch && matchesVeg;
     });
-  }, [selectedCategory, searchQuery, vegOnly]);
+  }, [menuItems, selectedCategory, searchQuery, vegOnly]);
 
   const totalCartCount = cart.reduce((acc, ci) => acc + ci.quantity, 0);
 
@@ -314,22 +370,16 @@ export default function App() {
     }
 
     return (
-      <>
-        <KitchenDashboard 
-          staffUser={staffAuth.user}
-          staffProfile={staffAuth.profile}
-          isDemoMode={staffAuth.isDemo}
-          onLogout={handleStaffLogout}
-          onSwitchToCustomer={() => navigateTo('customer')}
-          onOpenQRModal={() => setIsQRModalOpen(true)}
-        />
-        <SeatQRModal
-          isOpen={isQRModalOpen}
-          onClose={() => setIsQRModalOpen(false)}
-          cinemaDetails={cinemaDetails}
-          onUpdateSeat={(seat) => setCinemaDetails(prev => ({ ...prev, seatNumber: seat }))}
-        />
-      </>
+      <KitchenDashboard 
+        staffUser={staffAuth.user}
+        staffProfile={staffAuth.profile}
+        isDemoMode={staffAuth.isDemo}
+        onLogout={handleStaffLogout}
+        onSwitchToCustomer={() => navigateTo('customer')}
+        menuItems={menuItems}
+        onAddItem={handleAddNewItem}
+        onToggleStock={handleToggleStock}
+      />
     );
   }
 

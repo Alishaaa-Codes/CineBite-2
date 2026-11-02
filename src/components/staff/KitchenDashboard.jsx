@@ -21,7 +21,8 @@ import {
   Flame,
   Menu,
   X,
-  QrCode
+  PlusCircle,
+  PackageX
 } from 'lucide-react';
 import { 
   fetchStaffOrders, 
@@ -31,6 +32,8 @@ import {
 } from '../../lib/supabase';
 import { kitchenAudio } from '../../lib/audioAlert';
 import OrderDetailModal from './OrderDetailModal';
+import AddItemModal from './AddItemModal';
+import ManageStockModal from './ManageStockModal';
 
 export default function KitchenDashboard({ 
   staffUser, 
@@ -38,7 +41,9 @@ export default function KitchenDashboard({
   isDemoMode, 
   onLogout, 
   onSwitchToCustomer,
-  onOpenQRModal
+  menuItems = [],
+  onAddItem,
+  onToggleStock
 }) {
   const [orders, setOrders] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -52,6 +57,12 @@ export default function KitchenDashboard({
   const [newOrderAlert, setNewOrderAlert] = useState(null);
   const [checkedItems, setCheckedItems] = useState({}); // { `${orderId}-${itemIdx}`: boolean }
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isAddItemModalOpen, setIsAddItemModalOpen] = useState(false);
+  const [isStockModalOpen, setIsStockModalOpen] = useState(false);
+
+  const outOfStockCount = useMemo(() => {
+    return (menuItems || []).filter(i => i.isOutOfStock).length;
+  }, [menuItems]);
 
   // Live Digital Clock
   useEffect(() => {
@@ -303,21 +314,39 @@ export default function KitchenDashboard({
               <span>Sync</span>
             </button>
 
-            {onOpenQRModal && (
-              <button 
-                className="kitchen-btn-icon"
-                onClick={onOpenQRModal}
-                title="Generate and print In-Seat QR Standees for Mobile Phones"
-                style={{
-                  background: 'rgba(255, 159, 28, 0.15)',
-                  border: '1px solid rgba(255, 159, 28, 0.45)',
-                  color: '#FF9F1C'
-                }}
-              >
-                <QrCode size={14} />
-                <span>Seat QRs</span>
-              </button>
-            )}
+            {/* + Add New Item Button */}
+            <button 
+              className="kitchen-btn-icon kitchen-add-item-btn"
+              onClick={() => setIsAddItemModalOpen(true)}
+              title="Add a new food item to the cinema menu"
+              style={{
+                background: 'linear-gradient(135deg, #FF9F1C, #FFB703)',
+                color: '#0A0C14',
+                border: 'none',
+                fontWeight: 800
+              }}
+            >
+              <PlusCircle size={15} />
+              <span>+ Add Item</span>
+            </button>
+
+            {/* Out of Stock Button */}
+            <button 
+              className={`kitchen-btn-icon kitchen-stock-btn ${outOfStockCount > 0 ? 'has-out-stock' : ''}`}
+              onClick={() => setIsStockModalOpen(true)}
+              title="Manage menu item availability (mark Out of Stock or In Stock)"
+              style={{
+                background: outOfStockCount > 0 ? 'rgba(239, 68, 68, 0.16)' : 'var(--bg-tertiary)',
+                border: outOfStockCount > 0 ? '1px solid rgba(239, 68, 68, 0.45)' : '1px solid var(--border-color)',
+                color: outOfStockCount > 0 ? '#F87171' : 'var(--text-secondary)'
+              }}
+            >
+              <PackageX size={15} />
+              <span>Out of Stock</span>
+              {outOfStockCount > 0 && (
+                <span className="stock-count-bubble">{outOfStockCount}</span>
+              )}
+            </button>
 
             <button 
               className="kitchen-btn-icon kitchen-switch-btn"
@@ -342,24 +371,25 @@ export default function KitchenDashboard({
           </div>
         </div>
 
-        {/* New Order Alert Banner */}
+        {/* New Order Notification Banner (Dark Cinema Palette) */}
         {newOrderAlert && (
           <div style={{
-            background: 'linear-gradient(135deg, #E50914, #FF9F1C)',
-            color: '#FFFFFF',
+            background: '#121520',
+            borderBottom: '1px solid rgba(255, 159, 28, 0.4)',
+            color: '#FFB703',
             padding: '8px 1.5rem',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
             fontSize: '0.85rem',
-            fontWeight: 800,
-            boxShadow: '0 4px 15px rgba(229, 9, 20, 0.4)'
+            fontWeight: 700,
+            boxShadow: '0 4px 15px rgba(0, 0, 0, 0.5)'
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Bell size={16} />
-              <span>🔔 NEW CINEMA ORDER: {newOrderAlert} ARRIVED IN KITCHEN!</span>
+              <Bell size={16} color="#FF9F1C" />
+              <span>🔔 NEW ORDER: {newOrderAlert} ARRIVED IN KITCHEN</span>
             </div>
-            <span style={{ fontSize: '0.75rem', opacity: 0.9 }}>Check Screen & Seat below</span>
+            <span style={{ fontSize: '0.75rem', opacity: 0.8, color: 'var(--text-secondary)' }}>Check Screen & Seat below</span>
           </div>
         )}
       </header>
@@ -819,6 +849,21 @@ export default function KitchenDashboard({
           isUpdating={isUpdatingId === selectedOrder.id}
         />
       )}
+
+      {/* 6. Add New Item Modal */}
+      <AddItemModal 
+        isOpen={isAddItemModalOpen}
+        onClose={() => setIsAddItemModalOpen(false)}
+        onAddItem={onAddItem}
+      />
+
+      {/* 7. Manage Item Stock Modal */}
+      <ManageStockModal 
+        isOpen={isStockModalOpen}
+        onClose={() => setIsStockModalOpen(false)}
+        menuItems={menuItems}
+        onToggleStock={onToggleStock}
+      />
     </div>
   );
 }

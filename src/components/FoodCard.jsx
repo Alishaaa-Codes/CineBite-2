@@ -27,35 +27,46 @@ export default function FoodCard({
     }
   };
 
+  const isOutOfStock = Boolean(item.isOutOfStock);
+
   return (
-    <article className="food-card fade-in">
+    <article className={`food-card fade-in ${isOutOfStock ? 'is-out-of-stock' : ''}`}>
       <div className="food-card-image-box">
         <img
           src={imgError ? fallbackImg : item.imageUrl}
           alt={item.name}
-          className="food-card-img"
+          className={`food-card-img ${isOutOfStock ? 'out-of-stock-img' : ''}`}
           loading="lazy"
           onError={() => setImgError(true)}
         />
         <div className="food-card-overlay" />
+
+        {/* Out of Stock Overlay Banner */}
+        {isOutOfStock && (
+          <div className="food-card-sold-out-overlay">
+            <span className="food-card-sold-out-pill">OUT OF STOCK</span>
+          </div>
+        )}
 
         {/* Top Badges: Veg/Non-veg & Tag */}
         <div className="food-card-badges">
           <div className={`diet-indicator ${item.isVeg ? 'veg' : 'non-veg'}`}>
             <span className="diet-dot" />
           </div>
-          {item.tag && <span className="item-tag-badge">{item.tag}</span>}
+          {item.tag && !isOutOfStock && <span className="item-tag-badge">{item.tag}</span>}
         </div>
 
         {/* Portion / Weight Options badge */}
-        {hasWeightSpec ? (
-          <span className="item-portion-badge weight-pill">
-            <Scale size={11} style={{ marginRight: '3px' }} />
-            S • M • L (Weights)
-          </span>
-        ) : item.portion ? (
-          <span className="item-portion-badge">{item.portion}</span>
-        ) : null}
+        {!isOutOfStock && (
+          hasWeightSpec ? (
+            <span className="item-portion-badge weight-pill">
+              <Scale size={11} style={{ marginRight: '3px' }} />
+              S • M • L (Weights)
+            </span>
+          ) : item.portion ? (
+            <span className="item-portion-badge">{item.portion}</span>
+          ) : null
+        )}
       </div>
 
       <div className="food-card-body">
@@ -70,9 +81,17 @@ export default function FoodCard({
             <span className="food-price-amount">₹{minPrice}</span>
           </div>
 
-          {/* If the item has weight options, clicking +ADD opens the size selection modal.
-              If it has no weight options, clicking +ADD directly adds 1 item or shows qty controller. */}
-          {hasWeightSpec || cartQuantity === 0 ? (
+          {/* If out of stock, show disabled Sold Out button */}
+          {isOutOfStock ? (
+            <button 
+              className="add-btn out-of-stock-disabled-btn" 
+              disabled 
+              aria-disabled="true"
+              title="This item is currently sold out in the cinema kitchen"
+            >
+              <span className="add-btn-text">SOLD OUT</span>
+            </button>
+          ) : hasWeightSpec || cartQuantity === 0 ? (
             <button
               className="add-btn yellow-pop"
               onClick={handleAddClick}

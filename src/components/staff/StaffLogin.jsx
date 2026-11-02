@@ -190,19 +190,6 @@ ON CONFLICT (id) DO UPDATE SET role = EXCLUDED.role;`;
           </div>
         )}
 
-        {/* Authorized Passcode Reminder for Cinema Manager */}
-        <div style={{
-          marginTop: '1.25rem',
-          padding: '0.75rem',
-          background: 'rgba(255, 159, 28, 0.08)',
-          border: '1px dashed rgba(255, 159, 28, 0.35)',
-          borderRadius: 'var(--radius-sm)',
-          fontSize: '0.72rem',
-          color: 'var(--text-muted)',
-          textAlign: 'center'
-        }}>
-          💡 <strong>Cinema Staff Passcode:</strong> <code style={{ color: 'var(--text-orange)', fontWeight: 700 }}>cinebite2026</code> (or your registered Supabase staff account)
-        </div>
 
         {/* Expandable Setup Instructions Guide */}
         <div style={{ marginTop: '1.5rem', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '1rem' }}>
