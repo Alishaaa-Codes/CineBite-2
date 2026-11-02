@@ -238,14 +238,6 @@ export default function SeatModal({
                 </button>
               ))}
             </div>
-
-            <button
-              type="button"
-              className="netflix-skip-link"
-              onClick={handleSkip}
-            >
-              Or explore menu with default seat ({cinemaDetails.seatNumber || 'F-14'}) ›
-            </button>
           </form>
         </main>
 

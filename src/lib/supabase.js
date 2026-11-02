@@ -1,9 +1,12 @@
 import { createClient } from '@supabase/supabase-js';
 
-// Read and sanitize Vite environment variables
-const rawUrl = import.meta.env.VITE_SUPABASE_URL || '';
+// Read and sanitize Vite environment variables with production fallback
+const FALLBACK_SUPABASE_URL = 'https://vvowuokndzefnhdlhgqm.supabase.co';
+const FALLBACK_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ2b3d1b2tuZHplZm5oZGxoZ3FtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTMwMTgzODQsImV4cCI6MjEwODU5NDM4NH0.Mhgdi3RfxrsfO4Kc0msHz9JzGxbsXm4AN4p12pipsvs';
+
+const rawUrl = import.meta.env.VITE_SUPABASE_URL || FALLBACK_SUPABASE_URL;
 const supabaseUrl = rawUrl.replace(/\/rest\/v1\/?$/, '').replace(/\/+$/, '');
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || FALLBACK_SUPABASE_ANON_KEY;
 
 // Check if valid credentials are provided
 export const isSupabaseConfigured = Boolean(
@@ -14,12 +17,17 @@ export const isSupabaseConfigured = Boolean(
   !supabaseAnonKey.includes('your-anon-public-key')
 );
 
-// Initialize client only if valid configuration is present
+// Initialize client with auto-reconnecting realtime
 export const supabase = isSupabaseConfigured
   ? createClient(supabaseUrl, supabaseAnonKey, {
       auth: {
         persistSession: true,
         autoRefreshToken: true
+      },
+      realtime: {
+        params: {
+          eventsPerSecond: 20
+        }
       }
     })
   : null;
@@ -36,11 +44,11 @@ export function getSupabaseConfigStatus() {
 }
 
 // -----------------------------------------------------------------------------
-// LOCAL DEMO ORDERS STORE (Shared in-memory & localStorage fallback)
+// CINEMA ORDERS STORE (Shared in-memory & localStorage fallback)
 // -----------------------------------------------------------------------------
 const INITIAL_DEMO_ORDERS = [
   {
-    id: 'demo-order-1',
+    id: 'cinema-order-8491',
     order_number: 'CB-8491',
     theatre_id: '11111111-1111-1111-1111-111111111111',
     screen_id: '33333333-3333-3333-3333-333333333333',
@@ -78,7 +86,7 @@ const INITIAL_DEMO_ORDERS = [
     ]
   },
   {
-    id: 'demo-order-2',
+    id: 'cinema-order-6218',
     order_number: 'CB-6218',
     theatre_id: '11111111-1111-1111-1111-111111111111',
     screen_id: '33333333-3333-3333-3333-333333333333',
@@ -93,7 +101,7 @@ const INITIAL_DEMO_ORDERS = [
     tax_amount: 35.50,
     delivery_fee: 0.00,
     total_amount: 745.50,
-    order_access_token: 'demo-token-2',
+    order_access_token: 'token-6218',
     created_at: new Date(Date.now() - 8 * 60 * 1000).toISOString(),
     updated_at: new Date(Date.now() - 4 * 60 * 1000).toISOString(),
     order_items: [
@@ -116,7 +124,7 @@ const INITIAL_DEMO_ORDERS = [
     ]
   },
   {
-    id: 'demo-order-3',
+    id: 'cinema-order-3190',
     order_number: 'CB-3190',
     theatre_id: '11111111-1111-1111-1111-111111111111',
     screen_id: '22222222-2222-2222-2222-222222222222',
@@ -131,7 +139,7 @@ const INITIAL_DEMO_ORDERS = [
     tax_amount: 34.95,
     delivery_fee: 0.00,
     total_amount: 733.95,
-    order_access_token: 'demo-token-3',
+    order_access_token: 'token-3190',
     created_at: new Date(Date.now() - 14 * 60 * 1000).toISOString(),
     updated_at: new Date(Date.now() - 2 * 60 * 1000).toISOString(),
     order_items: [
@@ -283,7 +291,6 @@ export async function placeCinemaOrder({
   const total = subtotal + tax;
 
   let liveOrder = null;
-  let isLocalDemo = true;
 
   // 1. If Supabase is configured, attempt atomic database RPC
   if (isSupabaseConfigured && supabase) {
@@ -304,7 +311,6 @@ export async function placeCinemaOrder({
       });
 
       if (!error && data) {
-        isLocalDemo = false;
         liveOrder = {
           id: data.order_id,
           order_number: data.order_number,
@@ -382,25 +388,29 @@ export async function placeCinemaOrder({
   try {
     if (supabase) {
       const channel = supabase.channel('cinebite-live-kitchen');
-      channel.subscribe((status) => {
-        if (status === 'SUBSCRIBED') {
-          channel.send({
-            type: 'broadcast',
-            event: 'new_order',
-            payload: liveOrder
-          });
-          setTimeout(() => {
-            try { supabase.removeChannel(channel); } catch (e) {}
-          }, 2000);
-        }
-      });
+      const sendBroadcast = () => {
+        channel.send({
+          type: 'broadcast',
+          event: 'new_order',
+          payload: liveOrder
+        });
+      };
+
+      if (channel.state === 'joined') {
+        sendBroadcast();
+      } else {
+        channel.subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            sendBroadcast();
+          }
+        });
+      }
     }
   } catch (bcErr) {
     console.warn('Realtime cross-device broadcast warning:', bcErr);
   }
 
   return {
-    isLocalDemo,
     orderId: liveOrder.order_number,
     dbOrderId: liveOrder.id,
     accessToken: liveOrder.order_access_token,
@@ -529,32 +539,47 @@ export function subscribeToOrderStatus(optionsOrId, onStatusChange) {
     window.addEventListener('storage', handleStorage);
   }
 
-  // 4. Supabase Realtime channel (Broadcast + Postgres Changes)
+  // 4. Supabase Realtime channel (cinebite-live-kitchen Broadcast + Postgres Changes)
   let sbChannel = null;
-  if (isSupabaseConfigured && supabase && orderId && !String(orderId).startsWith('local-') && !String(orderId).startsWith('demo-')) {
+  if (isSupabaseConfigured && supabase) {
     try {
-      sbChannel = supabase
-        .channel(`order-status-${orderId}`)
+      sbChannel = supabase.channel('cinebite-live-kitchen');
+      sbChannel
         .on('broadcast', { event: 'status_update' }, (msg) => {
-          if (msg.payload?.status) {
-            onStatusChange(msg.payload.status);
+          const payload = msg.payload;
+          if (payload && matches(payload.orderId, payload.orderNumber) && payload.status) {
+            onStatusChange(payload.status);
           }
+        })
+        .on('broadcast', { event: 'request_sync' }, () => {
+          try {
+            const currentOrder = localOrders.getOrders().find(o => matches(o.id, o.order_number));
+            if (currentOrder && (currentOrder.status === 'received' || currentOrder.status === 'preparing' || currentOrder.status === 'ready')) {
+              sbChannel.send({
+                type: 'broadcast',
+                event: 'new_order',
+                payload: currentOrder
+              });
+            }
+          } catch (e) {}
         })
         .on(
           'postgres_changes',
           {
             event: 'UPDATE',
             schema: 'public',
-            table: 'orders',
-            filter: `id=eq.${orderId}`
+            table: 'orders'
           },
           (payload) => {
-            if (payload?.new?.status) {
+            if (payload?.new && matches(payload.new.id, payload.new.order_number) && payload.new.status) {
               onStatusChange(payload.new.status);
             }
           }
-        )
-        .subscribe();
+        );
+
+      if (sbChannel.state !== 'joined') {
+        sbChannel.subscribe();
+      }
     } catch (err) {
       console.warn('Realtime subscription warning:', err);
     }
@@ -805,18 +830,23 @@ export async function updateOrderStatus(orderId, newStatus, isDemo = false) {
   try {
     if (supabase) {
       const channel = supabase.channel('cinebite-live-kitchen');
-      channel.subscribe((status) => {
-        if (status === 'SUBSCRIBED') {
-          channel.send({
-            type: 'broadcast',
-            event: 'status_update',
-            payload: { orderId, status: newStatus }
-          });
-          setTimeout(() => {
-            try { supabase.removeChannel(channel); } catch (e) {}
-          }, 1500);
-        }
-      });
+      const sendUpdate = () => {
+        channel.send({
+          type: 'broadcast',
+          event: 'status_update',
+          payload: { orderId, status: newStatus }
+        });
+      };
+
+      if (channel.state === 'joined') {
+        sendUpdate();
+      } else {
+        channel.subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            sendUpdate();
+          }
+        });
+      }
     }
   } catch (bcErr) {
     console.warn('Realtime status broadcast warning:', bcErr);
@@ -985,8 +1015,21 @@ export function subscribeToKitchenOrders({ onInsert, onUpdate, isDemo = false })
               handleStatus(payload.new);
             }
           }
-        )
-        .subscribe();
+        );
+
+      if (sbChannel.state !== 'joined') {
+        sbChannel.subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            try {
+              sbChannel.send({
+                type: 'broadcast',
+                event: 'request_sync',
+                payload: { requestedAt: Date.now() }
+              });
+            } catch (e) {}
+          }
+        });
+      }
     } catch (sbErr) {
       console.warn('Supabase kitchen channel subscription warning:', sbErr);
     }

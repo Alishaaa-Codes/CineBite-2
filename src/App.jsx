@@ -118,17 +118,7 @@ export default function App() {
   // 4. Cart & Modal States
   const [cart, setCart] = useState([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
-  const [isSeatModalOpen, setIsSeatModalOpen] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const path = window.location.pathname.toLowerCase();
-      const params = new URLSearchParams(window.location.search);
-      if (path === '/kitchen' || path === '/staff' || params.get('portal') === 'staff') {
-        return false;
-      }
-      return true;
-    }
-    return true;
-  });
+  const [isSeatModalOpen, setIsSeatModalOpen] = useState(false);
 
   const [isQRModalOpen, setIsQRModalOpen] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -310,7 +300,6 @@ export default function App() {
         dbOrderId: result.dbOrderId,
         accessToken: result.accessToken,
         status: result.status || 'received',
-        isLocalDemo: result.isLocalDemo,
         grandTotal: result.totalAmount || orderData.grandTotal,
         subtotal: result.subtotal || orderData.subtotal,
         gst: result.taxAmount || orderData.gst,

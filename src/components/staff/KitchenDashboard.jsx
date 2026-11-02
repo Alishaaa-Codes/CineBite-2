@@ -101,18 +101,28 @@ export default function KitchenDashboard({
 
         // Prepend to orders list
         setOrders((prev) => {
-          const exists = prev.some((o) => o.id === newOrder.id);
+          const exists = prev.some((o) => 
+            (newOrder.id && o.id === newOrder.id) || 
+            (newOrder.order_number && o.order_number === newOrder.order_number)
+          );
           if (exists) return prev;
           return [newOrder, ...prev];
         });
       },
       onUpdate: (updatedOrder) => {
+        const targetId = updatedOrder.id || updatedOrder.orderId;
+        const targetNum = updatedOrder.order_number || updatedOrder.orderNumber;
         setOrders((prev) =>
-          prev.map((o) => (o.id === updatedOrder.id ? { ...o, ...updatedOrder } : o))
+          prev.map((o) => {
+            const matches = (targetId && o.id === targetId) || (targetNum && o.order_number === targetNum);
+            return matches ? { ...o, ...updatedOrder } : o;
+          })
         );
-        setSelectedOrder((prev) =>
-          prev && prev.id === updatedOrder.id ? { ...prev, ...updatedOrder } : prev
-        );
+        setSelectedOrder((prev) => {
+          if (!prev) return prev;
+          const matches = (targetId && prev.id === targetId) || (targetNum && prev.order_number === targetNum);
+          return matches ? { ...prev, ...updatedOrder } : prev;
+        });
       }
     });
 
@@ -561,7 +571,7 @@ export default function KitchenDashboard({
                 {staffProfile?.full_name || staffUser?.email || 'Kitchen Crew'}
               </span>
               <span className="sidebar-staff-role">
-                {isDemoMode ? 'Demo Simulator' : 'Food Dept. Staff'}
+                Kitchen Operations Staff
               </span>
             </div>
           </div>

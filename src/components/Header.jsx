@@ -1,5 +1,5 @@
 import React from 'react';
-import { Popcorn, ShoppingBag, Edit3 } from 'lucide-react';
+import { Popcorn, ShoppingBag, MapPin } from 'lucide-react';
 
 export default function Header({ 
   cinemaDetails, 
@@ -7,6 +7,11 @@ export default function Header({
   onOpenCart, 
   totalCartItems 
 }) {
+  const screenLabel = cinemaDetails?.screenName 
+    ? cinemaDetails.screenName.split('(')[0].trim() 
+    : 'Screen 2';
+  const seatLabel = cinemaDetails?.seatNumber || 'F-14';
+
   return (
     <header className="cinema-header">
       <div className="cinema-header-top-ribbon"></div>
@@ -20,36 +25,28 @@ export default function Header({
             <h1 className="brand-name">
               Cine<span>Bite</span>
             </h1>
-            <span className="brand-tagline">In-Seat Cinema Dining</span>
+            <div className="brand-location-tag" onClick={onOpenSeatModal} title="In-Seat Delivery Details">
+              <span className="seat-live-dot" />
+              <span>{screenLabel} • Seat {seatLabel}</span>
+            </div>
           </div>
         </div>
 
-        {/* Seat / Screen Pill */}
-        <button 
-          className="header-seat-pill" 
-          onClick={onOpenSeatModal}
-          title="Click to change your seat or screen"
-        >
-          <span className="seat-live-dot" />
-          <div className="seat-info-text">
-            <span className="seat-label">Delivering to</span>
-            <span className="seat-value">
-              {cinemaDetails.screenName ? cinemaDetails.screenName.split('(')[0].trim() : 'Screen'} • Seat {cinemaDetails.seatNumber || 'Not Set'}
-            </span>
-          </div>
-          <div className="edit-seat-btn">
-            <Edit3 size={13} />
-          </div>
-        </button>
-
-        {/* Header Right Actions */}
+        {/* Primary Cart Action Button (Directly Accessible on Mobile & Desktop) */}
         <div className="header-actions">
-          <button className="desktop-cart-btn" onClick={onOpenCart}>
-            <ShoppingBag size={18} />
-            <span>Cart</span>
-            {totalCartItems > 0 && (
-              <span className="cart-count-badge">{totalCartItems}</span>
-            )}
+          <button 
+            type="button"
+            className="header-cart-btn" 
+            onClick={onOpenCart}
+            aria-label="View shopping cart"
+          >
+            <div className="cart-icon-wrapper">
+              <ShoppingBag size={18} />
+              {totalCartItems > 0 && (
+                <span className="cart-count-badge">{totalCartItems}</span>
+              )}
+            </div>
+            <span className="header-cart-label">Cart</span>
           </button>
         </div>
       </div>

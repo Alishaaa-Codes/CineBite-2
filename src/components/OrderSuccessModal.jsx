@@ -75,16 +75,6 @@ export default function OrderSuccessModal({
             {/* Header Ribbon */}
             <div className="ticket-header-strip">
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span 
-                  className="local-demo-badge"
-                  style={order.isLocalDemo === false ? {
-                    background: 'rgba(16, 185, 129, 0.15)',
-                    borderColor: 'rgba(16, 185, 129, 0.4)',
-                    color: 'var(--veg-color)'
-                  } : undefined}
-                >
-                  {order.isLocalDemo === false ? 'SUPABASE LIVE ORDER' : 'LOCAL DEMO ORDER'}
-                </span>
                 <div className="ticket-status-pill">
                   <span className="ticket-pulse-dot" />
                   <span>ORDER CONFIRMED</span>
@@ -314,24 +304,6 @@ export default function OrderSuccessModal({
                       : 'Kitchen received your ticket and will begin preparation shortly.'}
                   </p>
                 </div>
-              </div>
-
-              {/* Demo / Simulation Controls */}
-              <div className="simulator-bar">
-                <div>
-                  <span className="simulator-label">Test Mode Simulator</span>
-                  <p style={{ fontSize: '0.68rem', color: 'var(--text-dim)', margin: 0 }}>
-                    Test status changes manually or via Kitchen Dashboard
-                  </p>
-                </div>
-                <button 
-                  type="button" 
-                  className="simulator-btn"
-                  onClick={onAdvanceStatus}
-                >
-                  <FastForward size={13} style={{ display: 'inline', marginRight: '4px' }} />
-                  {order.status === 'delivered' ? 'Restart Status' : 'Next Status ⏩'}
-                </button>
               </div>
 
               {/* Order Items Breakdown */}

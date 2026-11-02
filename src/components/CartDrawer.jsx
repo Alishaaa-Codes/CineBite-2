@@ -131,8 +131,7 @@ export default function CartDrawer({
         customerName: customerName.trim() || 'Moviegoer',
         customerPhone: customerPhone.trim(),
         specialNotes: specialNotes.trim(),
-        cinemaDetails,
-        isLocalDemo: true
+        cinemaDetails
       });
 
       // Reset step for next time
@@ -384,22 +383,13 @@ export default function CartDrawer({
           /* STEP 2: ORDER SUMMARY BEFORE SUBMISSION */
           <>
             <div className="cart-body">
-              {/* Live vs Local Demo Flow Notice */}
-              {isSupabaseConfigured ? (
-                <div className="local-demo-banner" style={{ background: 'rgba(34, 197, 94, 0.1)', borderColor: 'rgba(34, 197, 94, 0.3)' }}>
-                  <CheckCircle2 size={18} color="#4ADE80" style={{ flexShrink: 0, marginTop: '2px' }} />
-                  <p style={{ color: '#E2E8F0' }}>
-                    <strong style={{ color: '#4ADE80' }}>Supabase Live Connected:</strong> This order will be securely verified by the PostgreSQL database engine and instantly broadcast to the Cinema Kitchen in real time.
-                  </p>
-                </div>
-              ) : (
-                <div className="local-demo-banner">
-                  <Info size={18} color="var(--accent-orange)" style={{ flexShrink: 0, marginTop: '2px' }} />
-                  <p>
-                    <strong>Local Demo Mode:</strong> This order runs in a client-side demo simulation. It will be shared with the local staff dashboard queue.
-                  </p>
-                </div>
-              )}
+              {/* Cinema In-Seat Dining Assurance */}
+              <div className="local-demo-banner" style={{ background: 'rgba(255, 183, 3, 0.08)', borderColor: 'rgba(255, 183, 3, 0.3)' }}>
+                <CheckCircle2 size={18} color="#FFB703" style={{ flexShrink: 0, marginTop: '2px' }} />
+                <p style={{ color: '#E2E8F0' }}>
+                  <strong style={{ color: '#FFB703' }}>In-Seat Cinema Dining:</strong> Your order is transmitted directly to the cinema kitchen and will be delivered hot and fresh to your seat during showtime.
+                </p>
+              </div>
 
               {/* Delivery Destination Review */}
               <div className="summary-destination-card">
