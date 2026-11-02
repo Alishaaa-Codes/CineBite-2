@@ -1,9 +1,10 @@
 import os
 import json
 import subprocess
+import sys
 from PIL import Image, ImageDraw, ImageFont
 
-TARGET_URL = "http://192.168.29.91:5173/"
+TARGET_URL = sys.argv[1] if len(sys.argv) > 1 else "http://192.168.29.91:5173/"
 print(f"Generating QR codes for: {TARGET_URL}")
 
 # 1. Fetch exact QR matrix from verified Nayuki generator
