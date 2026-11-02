@@ -1,0 +1,520 @@
+/* Menu Styles - 60% Black, 30% Cinema Red, 10% Warm Orange */
+
+/* Cinema Marquee / Hero Banner */
+.cinema-banner {
+  background: linear-gradient(135deg, rgba(28, 10, 14, 0.92) 0%, rgba(14, 16, 23, 0.96) 60%, rgba(10, 11, 16, 0.98) 100%);
+  border: 1px solid rgba(229, 9, 20, 0.28);
+  border-radius: var(--radius-lg);
+  padding: 1.35rem;
+  margin: 1rem 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.cinema-banner::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 180px;
+  background: radial-gradient(circle at right center, rgba(229, 9, 20, 0.22), rgba(255, 159, 28, 0.08) 50%, transparent 80%);
+  pointer-events: none;
+}
+
+.banner-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  background: var(--accent-orange-subtle);
+  border: 1px solid var(--accent-orange-border);
+  color: var(--accent-orange);
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.25rem 0.65rem;
+  border-radius: var(--radius-full);
+  width: fit-content;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  box-shadow: 0 0 12px rgba(255, 159, 28, 0.15);
+}
+
+.banner-title {
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: #FFFFFF;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+}
+
+@media (min-width: 768px) {
+  .banner-title {
+    font-size: 1.6rem;
+  }
+}
+
+.banner-subtitle {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  max-width: 620px;
+  line-height: 1.5;
+}
+
+/* Search and Filters Bar */
+.search-filter-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+@media (min-width: 640px) {
+  .search-filter-section {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+}
+
+.search-input-wrapper {
+  position: relative;
+  flex: 1;
+}
+
+.search-input-icon {
+  position: absolute;
+  left: 0.95rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-dim);
+  pointer-events: none;
+}
+
+.search-input {
+  width: 100%;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-full);
+  padding: 0.7rem 2.4rem 0.7rem 2.6rem;
+  font-size: 0.88rem;
+  color: var(--text-main);
+  transition: all var(--transition-fast);
+}
+
+.search-input:focus {
+  border-color: var(--red-primary);
+  box-shadow: 0 0 16px rgba(229, 9, 20, 0.35);
+  background: var(--bg-card-hover);
+}
+
+.search-clear-btn {
+  position: absolute;
+  right: 0.85rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.2rem;
+  transition: color var(--transition-fast);
+}
+
+.search-clear-btn:hover {
+  color: #FFFFFF;
+}
+
+.filter-toggles {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.veg-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 0.55rem 0.9rem;
+  border-radius: var(--radius-full);
+  transition: all var(--transition-fast);
+}
+
+.veg-toggle-btn:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #FFFFFF;
+}
+
+.veg-toggle-btn.active {
+  background: var(--veg-bg);
+  border-color: var(--veg-color);
+  color: var(--veg-color);
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.2);
+}
+
+/* Category Navigation Pills (Sticky Bar) */
+.category-nav-wrapper {
+  position: sticky;
+  top: 58px;
+  z-index: 30;
+  background: rgba(7, 8, 11, 0.92);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  padding: 0.65rem 0;
+  margin-bottom: 1.25rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.category-scroll-container {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  overflow-x: auto;
+  scroll-behavior: smooth;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  padding: 0 0.25rem;
+}
+
+.category-scroll-container::-webkit-scrollbar {
+  display: none;
+}
+
+.category-pill {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 0.55rem 1rem;
+  border-radius: var(--radius-full);
+  transition: all var(--transition-fast);
+}
+
+.category-pill:hover {
+  border-color: rgba(229, 9, 20, 0.4);
+  color: #FFFFFF;
+  background: var(--bg-card-hover);
+}
+
+.category-pill.active {
+  background: var(--red-gradient);
+  border-color: var(--red-primary);
+  color: #FFFFFF;
+  font-weight: 700;
+  box-shadow: 0 4px 18px rgba(229, 9, 20, 0.55);
+}
+
+/* Food Cards Grid */
+.menu-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+}
+
+@media (min-width: 640px) {
+  .menu-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1.2rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .menu-grid {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1.25rem;
+  }
+}
+
+/* Food Card Component */
+.food-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  transition: transform var(--transition-fast), border-color var(--transition-fast), box-shadow var(--transition-fast);
+  position: relative;
+}
+
+.food-card:hover {
+  transform: translateY(-3px);
+  border-color: var(--red-border-hover);
+  box-shadow: 0 12px 30px -4px rgba(0, 0, 0, 0.8), 0 0 20px rgba(229, 9, 20, 0.22);
+}
+
+.food-card-image-box {
+  position: relative;
+  width: 100%;
+  height: 180px;
+  background: var(--bg-surface);
+  overflow: hidden;
+}
+
+.food-card-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.4s ease;
+}
+
+.food-card:hover .food-card-img {
+  transform: scale(1.05);
+}
+
+.food-card-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(7, 8, 11, 0.1) 0%, rgba(20, 23, 32, 0.85) 100%);
+  pointer-events: none;
+}
+
+.food-card-badges {
+  position: absolute;
+  top: 0.65rem;
+  left: 0.65rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  z-index: 2;
+}
+
+/* Indian Veg / Non-Veg Indicator Symbol */
+.diet-indicator {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  background: rgba(7, 8, 11, 0.88);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+}
+
+.diet-indicator.veg {
+  border: 1.5px solid var(--veg-color);
+}
+
+.diet-indicator.veg .diet-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--veg-color);
+}
+
+.diet-indicator.non-veg {
+  border: 1.5px solid var(--nonveg-color);
+}
+
+.diet-indicator.non-veg .diet-dot {
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-bottom: 7px solid var(--nonveg-color);
+}
+
+.item-tag-badge {
+  font-size: 0.68rem;
+  font-weight: 700;
+  background: rgba(7, 8, 11, 0.88);
+  color: var(--text-orange);
+  border: 1px solid var(--accent-orange-border);
+  padding: 0.2rem 0.55rem;
+  border-radius: var(--radius-full);
+  backdrop-filter: blur(4px);
+  box-shadow: 0 0 10px rgba(255, 159, 28, 0.15);
+}
+
+.item-portion-badge {
+  position: absolute;
+  bottom: 0.65rem;
+  right: 0.65rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: #FFFFFF;
+  background: rgba(7, 8, 11, 0.8);
+  padding: 0.2rem 0.6rem;
+  border-radius: var(--radius-full);
+  backdrop-filter: blur(4px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+/* Card Body */
+.food-card-body {
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.food-card-name {
+  font-size: 1.02rem;
+  font-weight: 700;
+  color: var(--text-main);
+  line-height: 1.3;
+  margin-bottom: 0.35rem;
+}
+
+.food-card-desc {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  line-height: 1.45;
+  margin-bottom: 1rem;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  flex: 1;
+}
+
+/* Card Footer: Price & Add Button */
+.food-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: auto;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.food-price-box {
+  display: flex;
+  flex-direction: column;
+}
+
+.food-price-currency {
+  font-size: 0.68rem;
+  color: var(--text-dim);
+  font-weight: 600;
+}
+
+.food-price-amount {
+  font-size: 1.2rem;
+  font-weight: 800;
+  color: var(--text-orange);
+  letter-spacing: -0.01em;
+  text-shadow: 0 0 12px rgba(255, 159, 28, 0.25);
+}
+
+/* Highlighted & Enlarged Yellow +ADD Button */
+.add-btn {
+  background: linear-gradient(135deg, #FFD700 0%, #FFB000 100%);
+  border: 2px solid #FFE873;
+  color: #0A0C14;
+  font-weight: 800;
+  font-size: 0.95rem;
+  padding: 0.52rem 1.35rem;
+  border-radius: var(--radius-full);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  cursor: pointer;
+  letter-spacing: 0.05em;
+  box-shadow: 0 4px 18px rgba(255, 193, 7, 0.45), 0 0 12px rgba(255, 215, 0, 0.3);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  user-select: none;
+}
+
+.add-btn:hover {
+  background: linear-gradient(135deg, #FFE44D 0%, #FFBE1A 100%);
+  border-color: #FFFFFF;
+  color: #000000;
+  transform: translateY(-2px) scale(1.06);
+  box-shadow: 0 6px 24px rgba(255, 193, 7, 0.7), 0 0 20px rgba(255, 224, 51, 0.6);
+}
+
+.add-btn:active {
+  transform: translateY(0) scale(0.98);
+}
+
+.add-btn-icon {
+  stroke-width: 3.2px;
+}
+
+.add-btn-text {
+  font-weight: 900;
+}
+
+.add-btn-cart-badge {
+  background: #E50914;
+  color: #FFFFFF;
+  font-size: 0.7rem;
+  font-weight: 800;
+  padding: 1px 6px;
+  border-radius: 999px;
+  margin-left: 2px;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+}
+
+.item-portion-badge.weight-pill {
+  background: rgba(255, 193, 7, 0.18);
+  border: 1px solid rgba(255, 193, 7, 0.4);
+  color: #FFD700;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+}
+
+.card-qty-controller {
+  display: inline-flex;
+  align-items: center;
+  background: var(--bg-surface);
+  border: 1px solid var(--red-primary);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+  box-shadow: 0 0 12px rgba(229, 9, 20, 0.25);
+}
+
+.card-qty-btn {
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #FFFFFF;
+  transition: background var(--transition-fast);
+}
+
+.card-qty-btn:hover {
+  background: var(--red-subtle-2);
+  color: var(--red-primary);
+}
+
+.card-qty-value {
+  min-width: 24px;
+  text-align: center;
+  font-size: 0.85rem;
+  font-weight: 800;
+  color: #FFFFFF;
+}
+
+/* Empty State */
+.empty-menu-box {
+  text-align: center;
+  padding: 3rem 1rem;
+  color: var(--text-muted);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.empty-menu-box svg {
+  color: var(--text-dim);
+}

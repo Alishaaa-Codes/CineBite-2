@@ -1,0 +1,202 @@
+/* Header Styles */
+.cinema-header {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  background: rgba(7, 8, 11, 0.88);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  transition: all var(--transition-fast);
+}
+
+.cinema-header-top-ribbon {
+  height: 3px;
+  background: linear-gradient(90deg, #E50914 0%, #FF9F1C 50%, #E50914 100%);
+  background-size: 200% 100%;
+  animation: shimmer 7s linear infinite;
+}
+
+.cinema-header-content {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0.75rem 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+@media (min-width: 768px) {
+  .cinema-header-content {
+    padding: 0.9rem 1.5rem;
+  }
+}
+
+/* Brand Section */
+.brand-link {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.brand-icon-wrapper {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-md);
+  background: linear-gradient(135deg, rgba(229, 9, 20, 0.22), rgba(255, 159, 28, 0.12));
+  border: 1px solid var(--red-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent-orange);
+  box-shadow: 0 0 16px rgba(229, 9, 20, 0.25);
+  transition: all var(--transition-fast);
+}
+
+.brand-link:hover .brand-icon-wrapper {
+  border-color: var(--red-primary);
+  box-shadow: var(--red-glow);
+  transform: scale(1.04);
+}
+
+.brand-text-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.brand-name {
+  font-size: 1.3rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: #FFFFFF;
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+  line-height: 1.1;
+}
+
+.brand-name span {
+  color: var(--red-primary);
+  text-shadow: 0 0 16px rgba(229, 9, 20, 0.65);
+}
+
+.brand-tagline {
+  font-size: 0.68rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+}
+
+/* Header Seat Badge */
+.header-seat-pill {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  background: var(--bg-card);
+  border: 1px solid rgba(229, 9, 20, 0.25);
+  padding: 0.35rem 0.75rem;
+  border-radius: var(--radius-full);
+  transition: all var(--transition-fast);
+}
+
+.header-seat-pill:hover {
+  border-color: var(--red-primary);
+  background: var(--bg-card-hover);
+  box-shadow: 0 0 14px rgba(229, 9, 20, 0.2);
+}
+
+.seat-live-dot {
+  width: 8px;
+  height: 8px;
+  background: var(--veg-color);
+  border-radius: 50%;
+  box-shadow: 0 0 8px var(--veg-color);
+  animation: pulseGlow 2s infinite ease-in-out;
+}
+
+.seat-info-text {
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+}
+
+.seat-label {
+  font-size: 0.62rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.seat-value {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text-orange);
+  line-height: 1.2;
+}
+
+.edit-seat-btn {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-muted);
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition-fast);
+}
+
+.edit-seat-btn:hover {
+  color: #FFFFFF;
+  background: var(--red-primary);
+}
+
+/* Header Right Actions */
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.desktop-cart-btn {
+  display: none;
+}
+
+@media (min-width: 768px) {
+  .desktop-cart-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    background: var(--red-gradient);
+    color: #FFFFFF;
+    font-weight: 700;
+    font-size: 0.88rem;
+    padding: 0.55rem 1.15rem;
+    border-radius: var(--radius-full);
+    box-shadow: var(--shadow-red-button);
+    transition: all var(--transition-fast);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+  }
+
+  .desktop-cart-btn:hover {
+    transform: translateY(-1px);
+    background: var(--red-gradient-hover);
+    box-shadow: 0 8px 24px rgba(229, 9, 20, 0.7);
+  }
+}
+
+.cart-count-badge {
+  background: #07080B;
+  color: var(--accent-orange);
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 0.15rem 0.5rem;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--accent-orange-border);
+}

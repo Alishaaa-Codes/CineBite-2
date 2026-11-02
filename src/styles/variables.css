@@ -1,0 +1,87 @@
+:root {
+  /* ========================================================
+     60% DOMINANT: Deep Cinema Obsidian & Charcoal Black
+     ======================================================== */
+  --bg-deep: #07080B;
+  --bg-surface: #0E1015;
+  --bg-card: #141720;
+  --bg-card-hover: #1B1F2C;
+  --bg-overlay: rgba(7, 8, 11, 0.9);
+  --bg-elevated: #202534;
+  --bg-glass: rgba(18, 21, 29, 0.72);
+
+  /* ========================================================
+     30% SECONDARY: Cinema Red & Crimson Ruby
+     ======================================================== */
+  --red-primary: #E50914;
+  --red-hover: #F6121D;
+  --red-dark: #990B11;
+  --red-subtle: rgba(229, 9, 20, 0.12);
+  --red-subtle-2: rgba(229, 9, 20, 0.2);
+  --red-border: rgba(229, 9, 20, 0.32);
+  --red-border-hover: rgba(229, 9, 20, 0.65);
+  --red-glow: 0 0 28px rgba(229, 9, 20, 0.35);
+  --red-glow-subtle: 0 4px 20px rgba(229, 9, 20, 0.2);
+  --red-gradient: linear-gradient(135deg, #E50914 0%, #A80D14 100%);
+  --red-gradient-hover: linear-gradient(135deg, #FF1E27 0%, #C41219 100%);
+  --shadow-red-button: 0 6px 22px -2px rgba(229, 9, 20, 0.55);
+
+  /* For backward compatibility & unified mapping */
+  --cinema-red: var(--red-primary);
+  --cinema-red-subtle: var(--red-subtle);
+
+  /* ========================================================
+     10% ACCENT: Warm Amber / Flame Orange
+     ======================================================== */
+  --accent-orange: #FF9F1C;
+  --accent-orange-hover: #FFB347;
+  --accent-orange-subtle: rgba(255, 159, 28, 0.14);
+  --accent-orange-border: rgba(255, 159, 28, 0.36);
+  --accent-glow: 0 0 18px rgba(255, 159, 28, 0.35);
+  --text-orange: #FFB84D;
+
+  /* Backward compatibility for gold references */
+  --gold-primary: var(--accent-orange);
+  --gold-hover: var(--accent-orange-hover);
+  --gold-subtle: var(--accent-orange-subtle);
+  --gold-border: var(--accent-orange-border);
+  --gold-glow: var(--accent-glow);
+  --text-gold: var(--text-orange);
+
+  /* Food Identifiers */
+  --veg-color: #10B981;
+  --veg-bg: rgba(16, 185, 129, 0.14);
+  --nonveg-color: #EF4444;
+  --nonveg-bg: rgba(239, 68, 68, 0.14);
+
+  /* Text Typography */
+  --text-main: #F9FAFB;
+  --text-muted: #9CA3AF;
+  --text-dim: #64748B;
+  --text-highlight: #FFFFFF;
+
+  /* Borders & Dividers */
+  --border-subtle: rgba(255, 255, 255, 0.07);
+  --border-glass: rgba(255, 255, 255, 0.12);
+  --border-focus: var(--red-primary);
+
+  /* Elevation & Shadows */
+  --shadow-card: 0 10px 28px -4px rgba(0, 0, 0, 0.7), 0 0 1px 1px rgba(255, 255, 255, 0.05);
+  --shadow-drawer: 0 -14px 40px rgba(0, 0, 0, 0.9);
+  --shadow-gold-button: var(--shadow-red-button);
+
+  /* Radii */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+  --radius-xl: 24px;
+  --radius-full: 9999px;
+
+  /* Typography */
+  --font-main: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-brand: 'Cinzel', serif;
+
+  /* Transitions */
+  --transition-fast: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-smooth: 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+}
