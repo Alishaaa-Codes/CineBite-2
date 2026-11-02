@@ -30,3 +30,4 @@ dist-ssr
 .swift-cache
 scratch_qr.swift
 generate_apple_qr
+.chrome-test-dir
