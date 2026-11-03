@@ -22,7 +22,8 @@ import {
   getStaffSession,
   broadcastMenuStockToggle,
   broadcastMenuSync,
-  subscribeToMenuUpdates
+  subscribeToMenuUpdates,
+  mergeMenuItems
 } from './lib/supabase';
 import './styles/staff.css';
 import { 
@@ -143,16 +144,17 @@ export default function App() {
     return false;
   });
 
-  // 5. Dynamic Menu Items (Persisted in localStorage & synced across browser tabs)
+  // 5. Dynamic Menu Items (Persisted in localStorage & synced across browser tabs and devices)
   const [menuItems, setMenuItems] = useState(() => {
     if (typeof window !== 'undefined') {
       try {
         const saved = localStorage.getItem('cinebite_menu_items');
         if (saved) {
           const parsed = JSON.parse(saved);
-          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            return mergeMenuItems([], parsed);
+          }
         }
-        localStorage.setItem('cinebite_menu_items', JSON.stringify(MENU_ITEMS));
       } catch (e) {}
     }
     return MENU_ITEMS;
@@ -170,33 +172,45 @@ export default function App() {
 
   // Add new food item from Kitchen Dashboard
   const handleAddNewItem = useCallback((newItem) => {
-    setMenuItems((prev) => {
-      const updated = [newItem, ...prev.filter(i => i.id !== newItem.id)];
-      try {
-        localStorage.setItem('cinebite_menu_items', JSON.stringify(updated));
-      } catch (e) {}
-      setTimeout(() => broadcastMenuSync(updated), 0);
-      return updated;
-    });
+    let current = [];
+    try {
+      const saved = localStorage.getItem('cinebite_menu_items');
+      if (saved) current = JSON.parse(saved);
+    } catch (e) {}
+    if (!Array.isArray(current) || current.length === 0) {
+      current = MENU_ITEMS;
+    }
+    const nextList = mergeMenuItems(current, [newItem]);
+    try {
+      localStorage.setItem('cinebite_menu_items', JSON.stringify(nextList));
+    } catch (e) {}
+    setMenuItems(nextList);
+    broadcastMenuSync(nextList);
   }, []);
 
   // Toggle item in/out of stock from Kitchen Dashboard
   const handleToggleStock = useCallback((itemId) => {
-    setMenuItems((prev) => {
-      let nextState = false;
-      const updated = prev.map((item) => {
-        if (item.id === itemId) {
-          nextState = !item.isOutOfStock;
-          return { ...item, isOutOfStock: nextState };
-        }
-        return item;
-      });
-      try {
-        localStorage.setItem('cinebite_menu_items', JSON.stringify(updated));
-      } catch (e) {}
-      setTimeout(() => broadcastMenuStockToggle(itemId, nextState, updated), 0);
-      return updated;
+    let current = [];
+    try {
+      const saved = localStorage.getItem('cinebite_menu_items');
+      if (saved) current = JSON.parse(saved);
+    } catch (e) {}
+    if (!Array.isArray(current) || current.length === 0) {
+      current = MENU_ITEMS;
+    }
+    let nextState = false;
+    const nextList = current.map((item) => {
+      if (item.id === itemId) {
+        nextState = !item.isOutOfStock;
+        return { ...item, isOutOfStock: nextState };
+      }
+      return item;
     });
+    try {
+      localStorage.setItem('cinebite_menu_items', JSON.stringify(nextList));
+    } catch (e) {}
+    setMenuItems(nextList);
+    broadcastMenuStockToggle(itemId, nextState, nextList);
   }, []);
 
   // 6. Category & Filter States

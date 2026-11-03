@@ -226,6 +226,14 @@ export default function KitchenDashboard({
     }
   };
 
+  // Add Item Success Handler with Audio Chime & Banner
+  const handleAddItemSuccess = (newItem) => {
+    if (onAddItem) onAddItem(newItem);
+    kitchenAudio.playStatusChangeChime();
+    setNewOrderAlert(`✓ "${newItem.name}" published live to cinema menu!`);
+    setTimeout(() => setNewOrderAlert(null), 5000);
+  };
+
   // Toggle item packing checklist
   const handleToggleItemCheck = (orderId, itemIdx) => {
     const key = `${orderId}-${itemIdx}`;
@@ -929,7 +937,7 @@ export default function KitchenDashboard({
       <AddItemModal 
         isOpen={isAddItemModalOpen}
         onClose={() => setIsAddItemModalOpen(false)}
-        onAddItem={onAddItem}
+        onAddItem={handleAddItemSuccess}
       />
 
       {/* 7. Manage Item Stock Modal */}

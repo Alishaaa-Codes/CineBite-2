@@ -30,22 +30,22 @@ export default function AddItemModal({ isOpen, onClose, onAddItem }) {
   if (!isOpen) return null;
 
   const [name, setName] = useState('');
-  const [categoryId, setCategoryId] = useState('popcorn');
+  const [categoryId, setCategoryId] = useState('snacks');
   const [description, setDescription] = useState('');
-  const [price, setPrice] = useState('');
+  const [price, setPrice] = useState('220');
   const [isVeg, setIsVeg] = useState(true);
   const [tag, setTag] = useState('New');
   const [imageUrl, setImageUrl] = useState('');
   const [imagePreview, setImagePreview] = useState('');
   
   // Portions / Weights specification
-  const [hasPortions, setHasPortions] = useState(true);
+  const [hasPortions, setHasPortions] = useState(false);
   const [smallWeight, setSmallWeight] = useState('90g');
-  const [smallPrice, setSmallPrice] = useState('');
+  const [smallPrice, setSmallPrice] = useState('160');
   const [medWeight, setMedWeight] = useState('150g');
-  const [medPrice, setMedPrice] = useState('');
+  const [medPrice, setMedPrice] = useState('200');
   const [largeWeight, setLargeWeight] = useState('250g');
-  const [largePrice, setLargePrice] = useState('');
+  const [largePrice, setLargePrice] = useState('250');
   const [singlePortionLabel, setSinglePortionLabel] = useState('Standard Serve');
 
   const [error, setError] = useState('');
@@ -77,8 +77,14 @@ export default function AddItemModal({ isOpen, onClose, onAddItem }) {
 
   const handleCategoryChange = (catId) => {
     setCategoryId(catId);
-    if (catId === 'popcorn') {
-      setHasPortions(true);
+    const cat = CATEGORY_OPTIONS.find((c) => c.id === catId);
+    const shouldHavePortions = Boolean(cat?.defaultWeightSpec);
+    setHasPortions(shouldHavePortions);
+    if (shouldHavePortions) {
+      const p = Number(price) || 250;
+      setLargePrice(String(p));
+      setMedPrice(String(Math.round(p * 0.85)));
+      setSmallPrice(String(Math.round(p * 0.7)));
     }
   };
 
@@ -86,38 +92,33 @@ export default function AddItemModal({ isOpen, onClose, onAddItem }) {
     e.preventDefault();
     setError('');
 
-    if (!name.trim()) {
+    const trimmedName = name.trim();
+    if (!trimmedName) {
       setError('Item name is required.');
       return;
     }
 
-    const basePriceNum = Number(price);
-    if (!hasPortions && (!price || isNaN(basePriceNum) || basePriceNum <= 0)) {
-      setError('Please enter a valid base price.');
+    const basePriceNum = Number(price) || Number(largePrice) || 220;
+    if (basePriceNum <= 0) {
+      setError('Please enter a valid price.');
       return;
     }
 
-    if (hasPortions) {
-      const sP = Number(smallPrice || basePriceNum * 0.7);
-      const mP = Number(medPrice || basePriceNum * 0.9);
-      const lP = Number(largePrice || basePriceNum);
-      if (isNaN(sP) || isNaN(mP) || isNaN(lP) || sP <= 0 || mP <= 0 || lP <= 0) {
-        setError('Please enter valid prices for all portion sizes.');
-        return;
-      }
-    }
+    const sP = Number(smallPrice) || Math.round(basePriceNum * 0.7) || 150;
+    const mP = Number(medPrice) || Math.round(basePriceNum * 0.85) || 190;
+    const lP = Number(largePrice) || basePriceNum || 240;
 
     const finalImage = imageUrl || DEFAULT_CATEGORY_IMAGES[categoryId] || DEFAULT_CATEGORY_IMAGES.snacks;
 
     const newItem = {
       id: `item-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-      name: name.trim(),
+      name: trimmedName,
       categoryId,
       description: description.trim() || 'Freshly prepared at CineBite cinema kitchen.',
-      price: hasPortions ? Number(largePrice || price || 250) : basePriceNum,
+      price: hasPortions ? lP : basePriceNum,
       isVeg,
       tag: tag.trim() || undefined,
-      portion: hasPortions ? `Large (${largeWeight || '250g'})` : (singlePortionLabel || 'Standard Serve'),
+      portion: hasPortions ? `Large (${largeWeight || '250g'})` : (singlePortionLabel.trim() || 'Standard Serve'),
       imageUrl: finalImage,
       hasWeightOptions: hasPortions,
       isOutOfStock: false,
@@ -130,21 +131,21 @@ export default function AddItemModal({ isOpen, onClose, onAddItem }) {
           id: 'small',
           name: 'Small',
           weight: smallWeight || '90g',
-          price: Number(smallPrice || 150),
+          price: sP,
           description: `Single serve (${smallWeight || '90g'})`
         },
         {
           id: 'medium',
           name: 'Medium',
           weight: medWeight || '150g',
-          price: Number(medPrice || 200),
+          price: mP,
           description: `Standard cinema tub (${medWeight || '150g'})`
         },
         {
           id: 'large',
           name: 'Large',
           weight: largeWeight || '250g',
-          price: Number(largePrice || 250),
+          price: lP,
           description: `Jumbo sharing tub (${largeWeight || '250g'})`
         }
       ];
@@ -272,21 +273,30 @@ export default function AddItemModal({ isOpen, onClose, onAddItem }) {
                 </div>
               </div>
 
-              {/* Base Price (if no portions) */}
-              {!hasPortions && (
-                <div className="form-group">
-                  <label className="form-label">Price (₹) *</label>
-                  <input 
-                    type="number" 
-                    className="form-input" 
-                    placeholder="e.g. 240"
-                    min="1"
-                    value={price}
-                    onChange={(e) => setPrice(e.target.value)}
-                    required={!hasPortions}
-                  />
-                </div>
-              )}
+              {/* Base Price */}
+              <div className="form-group">
+                <label className="form-label">{hasPortions ? 'Standard / Large Price (₹) *' : 'Price (₹) *'}</label>
+                <input 
+                  type="number" 
+                  className="form-input" 
+                  placeholder="e.g. 240"
+                  min="1"
+                  value={price}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setPrice(val);
+                    if (val && hasPortions) {
+                      const num = Number(val);
+                      if (num > 0) {
+                        setLargePrice(val);
+                        setMedPrice(String(Math.round(num * 0.85)));
+                        setSmallPrice(String(Math.round(num * 0.7)));
+                      }
+                    }
+                  }}
+                  required
+                />
+              </div>
             </div>
 
             {/* Right Column: Image Upload & Portions */}
@@ -362,10 +372,9 @@ export default function AddItemModal({ isOpen, onClose, onAddItem }) {
                     <input 
                       type="number" 
                       className="form-input portion-input-price" 
-                      placeholder="Price (180)" 
+                      placeholder="Price (160)" 
                       value={smallPrice}
                       onChange={(e) => setSmallPrice(e.target.value)}
-                      required={hasPortions}
                     />
                   </div>
 
@@ -382,10 +391,9 @@ export default function AddItemModal({ isOpen, onClose, onAddItem }) {
                     <input 
                       type="number" 
                       className="form-input portion-input-price" 
-                      placeholder="Price (230)" 
+                      placeholder="Price (200)" 
                       value={medPrice}
                       onChange={(e) => setMedPrice(e.target.value)}
-                      required={hasPortions}
                     />
                   </div>
 
@@ -402,10 +410,9 @@ export default function AddItemModal({ isOpen, onClose, onAddItem }) {
                     <input 
                       type="number" 
                       className="form-input portion-input-price" 
-                      placeholder="Price (280)" 
+                      placeholder="Price (250)" 
                       value={largePrice}
                       onChange={(e) => setLargePrice(e.target.value)}
-                      required={hasPortions}
                     />
                   </div>
                 </div>
