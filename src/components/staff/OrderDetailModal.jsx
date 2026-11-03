@@ -204,7 +204,7 @@ export default function OrderDetailModal({
           {order.status === 'received' && (
             <button
               className="btn-status-next to-preparing"
-              onClick={() => onUpdateStatus(order.id, 'preparing')}
+              onClick={() => onUpdateStatus(order.id, 'preparing', order.order_number)}
               disabled={isUpdating}
             >
               <ChefHat size={16} />
@@ -215,7 +215,7 @@ export default function OrderDetailModal({
           {order.status === 'preparing' && (
             <button
               className="btn-status-next to-ready"
-              onClick={() => onUpdateStatus(order.id, 'ready')}
+              onClick={() => onUpdateStatus(order.id, 'ready', order.order_number)}
               disabled={isUpdating}
             >
               <CheckCircle2 size={16} />
@@ -226,7 +226,7 @@ export default function OrderDetailModal({
           {order.status === 'ready' && (
             <button
               className="btn-status-next to-delivered"
-              onClick={() => onUpdateStatus(order.id, 'delivered')}
+              onClick={() => onUpdateStatus(order.id, 'delivered', order.order_number)}
               disabled={isUpdating}
             >
               <Send size={16} />
@@ -242,7 +242,7 @@ export default function OrderDetailModal({
 
           {order.status !== 'delivered' && order.status !== 'cancelled' && (
             <button
-              onClick={() => onUpdateStatus(order.id, 'cancelled')}
+              onClick={() => onUpdateStatus(order.id, 'cancelled', order.order_number)}
               disabled={isUpdating}
               style={{
                 background: 'rgba(239, 68, 68, 0.15)',

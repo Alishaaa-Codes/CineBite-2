@@ -203,17 +203,20 @@ export default function KitchenDashboard({
   };
 
   // Handle Order Status Transitions
-  const handleStatusChange = async (orderId, newStatus) => {
+  const handleStatusChange = async (orderId, newStatus, explicitOrderNumber = null) => {
     try {
       setIsUpdatingId(orderId);
-      const updated = await updateOrderStatus(orderId, newStatus, isDemoMode);
+      const targetOrder = orders.find(o => o.id === orderId || o.order_number === orderId);
+      const orderNumber = explicitOrderNumber || targetOrder?.order_number || (String(orderId).startsWith('CB-') ? orderId : null);
+
+      const updated = await updateOrderStatus(orderId, newStatus, isDemoMode, orderNumber);
       kitchenAudio.playStatusChangeChime();
 
       setOrders((prev) =>
-        prev.map((o) => (o.id === orderId ? { ...o, status: newStatus } : o))
+        prev.map((o) => (o.id === orderId || (orderNumber && o.order_number === orderNumber) ? { ...o, status: newStatus } : o))
       );
 
-      if (selectedOrder && selectedOrder.id === orderId) {
+      if (selectedOrder && (selectedOrder.id === orderId || (orderNumber && selectedOrder.order_number === orderNumber))) {
         setSelectedOrder((prev) => ({ ...prev, status: newStatus }));
       }
     } catch (err) {
@@ -864,7 +867,7 @@ export default function KitchenDashboard({
                       {order.status === 'received' && (
                         <button
                           className="btn-status-next to-preparing"
-                          onClick={() => handleStatusChange(order.id, 'preparing')}
+                          onClick={() => handleStatusChange(order.id, 'preparing', order.order_number)}
                           disabled={isUpdatingId === order.id}
                         >
                           <ChefHat size={15} />
@@ -875,7 +878,7 @@ export default function KitchenDashboard({
                       {order.status === 'preparing' && (
                         <button
                           className="btn-status-next to-ready"
-                          onClick={() => handleStatusChange(order.id, 'ready')}
+                          onClick={() => handleStatusChange(order.id, 'ready', order.order_number)}
                           disabled={isUpdatingId === order.id}
                         >
                           <CheckCircle2 size={15} />
@@ -886,7 +889,7 @@ export default function KitchenDashboard({
                       {order.status === 'ready' && (
                         <button
                           className="btn-status-next to-delivered"
-                          onClick={() => handleStatusChange(order.id, 'delivered')}
+                          onClick={() => handleStatusChange(order.id, 'delivered', order.order_number)}
                           disabled={isUpdatingId === order.id}
                         >
                           <Send size={15} />

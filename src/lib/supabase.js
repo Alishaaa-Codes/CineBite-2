@@ -59,6 +59,35 @@ export function getKitchenOrdersChannel() {
       }
     });
 
+    // Attach Postgres database change listeners ONCE before subscribing
+    try {
+      liveKitchenChannel
+        .on(
+          'postgres_changes',
+          { event: 'UPDATE', schema: 'public', table: 'orders' },
+          (payload) => {
+            if (payload?.new && typeof window !== 'undefined') {
+              const detail = {
+                id: payload.new.id,
+                orderId: payload.new.id,
+                orderNumber: payload.new.order_number,
+                status: payload.new.status
+              };
+              window.dispatchEvent(new CustomEvent('cinebite:order-updated', { detail }));
+            }
+          }
+        )
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'orders' },
+          (payload) => {
+            if (payload?.new && typeof window !== 'undefined') {
+              window.dispatchEvent(new CustomEvent('cinebite:new-order', { detail: payload.new }));
+            }
+          }
+        );
+    } catch (e) {}
+
     if (typeof window !== 'undefined') {
       liveKitchenChannel.subscribe();
     }
@@ -465,37 +494,63 @@ export async function placeCinemaOrder({
 /**
  * Look up single order status securely (token authenticated RPC or local)
  */
-export async function getOrderStatus(orderId, accessToken) {
-  if (!orderId) return null;
+export async function getOrderStatus(orderId, accessToken, orderNumber = null) {
+  if (!orderId && !orderNumber) return null;
+
+  const targetId = orderId;
+  const targetNum = orderNumber || (String(orderId).startsWith('CB-') ? orderId : null);
 
   // 1. Check localOrders store
-  const local = localOrders.getOrders().find(o => o.id === orderId || o.order_number === orderId);
+  const local = localOrders.getOrders().find(o => 
+    (targetId && (o.id === targetId || o.order_number === targetId)) ||
+    (targetNum && (o.order_number === targetNum || o.id === targetNum))
+  );
 
   // 2. If Supabase is configured and not a pure local mock
-  if (isSupabaseConfigured && supabase && !String(orderId).startsWith('local-') && !String(orderId).startsWith('demo-')) {
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(targetId || ''));
+
+  if (isSupabaseConfigured && supabase) {
     try {
-      if (accessToken) {
-        const { data, error } = await supabase.rpc('get_order_status', {
-          p_order_id: orderId,
+      if (accessToken && isUuid) {
+        const rpcPromise = supabase.rpc('get_order_status', {
+          p_order_id: targetId,
           p_access_token: accessToken
         });
-        if (!error && data) {
+        const rpcRes = await Promise.race([
+          rpcPromise,
+          new Promise((_, reject) => setTimeout(() => reject(new Error('RPC timeout')), 1200))
+        ]).catch(() => null);
+
+        if (rpcRes?.data) {
+          const data = rpcRes.data;
           if (local && data.status && local.status !== data.status) {
-            localOrders.updateStatus(orderId, data.status);
+            localOrders.updateStatus(targetId, data.status);
+            if (targetNum) localOrders.updateStatus(targetNum, data.status);
           }
           return data;
         }
       }
 
-      const { data, error } = await supabase
-        .from('orders')
-        .select('id, order_number, status, updated_at')
-        .eq('id', orderId)
-        .maybeSingle();
+      let query = supabase.from('orders').select('id, order_number, status, updated_at');
+      if (isUuid) {
+        query = query.eq('id', targetId);
+      } else if (targetNum) {
+        query = query.eq('order_number', targetNum);
+      } else {
+        query = query.eq('id', targetId);
+      }
 
-      if (!error && data) {
+      const queryPromise = query.maybeSingle();
+      const res = await Promise.race([
+        queryPromise,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Query timeout')), 1200))
+      ]).catch(() => null);
+
+      if (res?.data) {
+        const data = res.data;
         if (local && data.status && local.status !== data.status) {
-          localOrders.updateStatus(orderId, data.status);
+          localOrders.updateStatus(targetId, data.status);
+          if (targetNum) localOrders.updateStatus(targetNum, data.status);
         }
         return data;
       }
@@ -517,7 +572,7 @@ export async function getOrderStatus(orderId, accessToken) {
  * 5. Active token-authenticated polling fallback (every 2s)
  */
 export function subscribeToOrderStatus(optionsOrId, onStatusChange) {
-  if (!optionsOrId) return () => {};
+  if (!optionsOrId || typeof onStatusChange !== 'function') return () => {};
 
   const orderId = typeof optionsOrId === 'object' ? optionsOrId.orderId : optionsOrId;
   const orderNumber = typeof optionsOrId === 'object' ? optionsOrId.orderNumber : null;
@@ -525,19 +580,78 @@ export function subscribeToOrderStatus(optionsOrId, onStatusChange) {
 
   if (!orderId && !orderNumber) return () => {};
 
+  const clean = (v) => String(v || '').trim().toLowerCase();
+  const cleanDigits = (v) => String(v || '').replace(/\D/g, '');
+
+  const targetStrings = [clean(orderId), clean(orderNumber)].filter(Boolean);
+  const targetDigits = targetStrings.map(cleanDigits).filter(d => d.length >= 4);
+
   const matches = (idToCheck, numToCheck) => {
     if (!idToCheck && !numToCheck) return false;
-    const clean = (v) => String(v || '').trim().toLowerCase();
-    const targets = [clean(orderId), clean(orderNumber)].filter(Boolean);
-    const incoming = [clean(idToCheck), clean(numToCheck)].filter(Boolean);
-    return targets.some(t => incoming.includes(t));
+    const incomingStrings = [clean(idToCheck), clean(numToCheck)].filter(Boolean);
+    if (targetStrings.some(t => incomingStrings.includes(t))) return true;
+
+    const incomingDigits = incomingStrings.map(cleanDigits).filter(d => d.length >= 4);
+    if (targetDigits.some(td => incomingDigits.includes(td))) return true;
+
+    return false;
+  };
+
+  const STATUS_RANKS = {
+    received: 1,
+    preparing: 2,
+    ready: 3,
+    delivered: 4,
+    cancelled: 5
+  };
+
+  let highestStatusSeen = 'received';
+  try {
+    const local = localOrders.getOrders().find(o => matches(o.id, o.order_number));
+    if (local?.status) highestStatusSeen = local.status;
+  } catch (e) {}
+
+  const applyStatusChange = (newStatus) => {
+    if (!newStatus) return;
+    const currentRank = STATUS_RANKS[highestStatusSeen] || 1;
+    const nextRank = STATUS_RANKS[newStatus] || 1;
+
+    // Never downgrade an order status unless explicitly cancelled
+    if (newStatus !== 'cancelled' && nextRank < currentRank) {
+      return;
+    }
+
+    highestStatusSeen = newStatus;
+
+    // 1. Update local store so poller and other tabs see the freshest status
+    try {
+      if (orderId) localOrders.updateStatus(orderId, newStatus);
+      if (orderNumber) localOrders.updateStatus(orderNumber, newStatus);
+    } catch (e) {}
+
+    // 2. Update active order TTL entry in localStorage
+    try {
+      if (typeof window !== 'undefined') {
+        const saved = localStorage.getItem('cinebite_customer_active_order');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed?.order) {
+            parsed.order.status = newStatus;
+            localStorage.setItem('cinebite_customer_active_order', JSON.stringify(parsed));
+          }
+        }
+      }
+    } catch (e) {}
+
+    // 3. Notify the React component
+    onStatusChange(newStatus);
   };
 
   // 1. Same-window CustomEvent listener
   const handleLocalUpdate = (e) => {
     const detail = e.detail;
     if (matches(detail?.id, detail?.orderNumber) && detail?.status) {
-      onStatusChange(detail.status);
+      applyStatusChange(detail.status);
     }
   };
   if (typeof window !== 'undefined') {
@@ -549,7 +663,7 @@ export function subscribeToOrderStatus(optionsOrId, onStatusChange) {
   const handleBcMessage = (e) => {
     const data = e?.data;
     if (data?.type === 'order-updated' && matches(data.id, data.orderNumber) && data.status) {
-      onStatusChange(data.status);
+      applyStatusChange(data.status);
     }
   };
   if (bc) {
@@ -564,7 +678,7 @@ export function subscribeToOrderStatus(optionsOrId, onStatusChange) {
       try {
         const data = JSON.parse(e.newValue);
         if (matches(data.id, data.orderNumber) && data.status) {
-          onStatusChange(data.status);
+          applyStatusChange(data.status);
         }
       } catch (err) {}
     }
@@ -581,7 +695,14 @@ export function subscribeToOrderStatus(optionsOrId, onStatusChange) {
         .on('broadcast', { event: 'status_update' }, (msg) => {
           const payload = msg?.payload;
           if (payload && matches(payload.orderId, payload.orderNumber) && payload.status) {
-            onStatusChange(payload.status);
+            applyStatusChange(payload.status);
+          }
+        })
+        .on('broadcast', { event: 'sync_orders' }, (msg) => {
+          const ordersList = Array.isArray(msg?.payload) ? msg.payload : [];
+          const matched = ordersList.find(o => matches(o?.id, o?.order_number));
+          if (matched?.status) {
+            applyStatusChange(matched.status);
           }
         })
         .on('broadcast', { event: 'request_sync' }, () => {
@@ -595,48 +716,48 @@ export function subscribeToOrderStatus(optionsOrId, onStatusChange) {
               }).catch(() => {});
             }
           } catch (e) {}
-        })
-        .on(
-          'postgres_changes',
-          {
-            event: 'UPDATE',
-            schema: 'public',
-            table: 'orders'
-          },
-          (payload) => {
-            if (payload?.new && matches(payload.new.id, payload.new.order_number) && payload.new.status) {
-              onStatusChange(payload.new.status);
-            }
-          }
-        );
+        });
 
-      if (sbChannel.state !== 'joined') {
-        sbChannel.subscribe();
+      const requestStatusSync = () => {
+        try {
+          sbChannel.send({
+            type: 'broadcast',
+            event: 'request_status_sync',
+            payload: { orderId, orderNumber }
+          }).catch(() => {});
+        } catch (e) {}
+      };
+
+      if (sbChannel.state === 'joined') {
+        requestStatusSync();
+      } else {
+        sbChannel.subscribe((status) => {
+          if (status === 'SUBSCRIBED') requestStatusSync();
+        });
       }
     } catch (err) {
       console.warn('Realtime subscription warning:', err);
     }
   }
 
-  // 5. Active Polling Fallback (Polls every 2 seconds for fresh DB or local status)
+  // 5. Active Polling Fallback (Polls every 2 seconds for fresh DB status)
   let isCancelled = false;
   const pollStatus = async () => {
     if (isCancelled) return;
     try {
-      // First check local orders store in case same-browser
-      const local = localOrders.getOrders().find(o => matches(o.id, o.order_number));
-      if (local?.status && !isCancelled) {
-        onStatusChange(local.status);
-        if (local.status === 'delivered' || local.status === 'cancelled') {
+      const freshOrder = await getOrderStatus(orderId, accessToken, orderNumber);
+      if (freshOrder?.status && !isCancelled) {
+        applyStatusChange(freshOrder.status);
+        if (freshOrder.status === 'delivered' || freshOrder.status === 'cancelled') {
           clearInterval(pollTimer);
           return;
         }
       }
 
-      const freshOrder = await getOrderStatus(orderId, accessToken);
-      if (freshOrder?.status && !isCancelled) {
-        onStatusChange(freshOrder.status);
-        if (freshOrder.status === 'delivered' || freshOrder.status === 'cancelled') {
+      const local = localOrders.getOrders().find(o => matches(o.id, o.order_number));
+      if (local?.status && !isCancelled) {
+        applyStatusChange(local.status);
+        if (local.status === 'delivered' || local.status === 'cancelled') {
           clearInterval(pollTimer);
         }
       }
@@ -656,7 +777,6 @@ export function subscribeToOrderStatus(optionsOrId, onStatusChange) {
     if (bc) {
       try { bc.removeEventListener('message', handleBcMessage); } catch (e) {}
     }
-    // Channel connection remains hot and listening across components
   };
 }
 
@@ -861,94 +981,104 @@ export async function fetchStaffOrders(isDemo = false) {
  * Updates an order status (received -> preparing -> ready -> delivered / cancelled)
  * Synchronizes across local store, BroadcastChannel, and Supabase Realtime
  */
-export async function updateOrderStatus(orderId, newStatus, isDemo = false) {
+export async function updateOrderStatus(orderId, newStatus, isDemo = false, explicitOrderNumber = null) {
   if (!orderId || !newStatus) throw new Error('Order ID and new status are required.');
 
-  // 1. Always update local store for instant reactive UI feedback
-  const updatedOrder = localOrders.updateStatus(orderId, newStatus);
-  const resolvedId = updatedOrder?.id || orderId;
-  const resolvedNumber = updatedOrder?.order_number || (String(orderId).startsWith('CB-') ? orderId : null);
+  // 1. Resolve order details from local store or explicit parameter
+  const localList = localOrders.getOrders();
+  const existingOrder = localList.find(o => 
+    o.id === orderId || 
+    o.order_number === orderId || 
+    (explicitOrderNumber && o.order_number === explicitOrderNumber)
+  );
 
-  // 2. Broadcast status update across devices via Supabase Realtime
+  const resolvedId = existingOrder?.id || orderId;
+  const resolvedNumber = explicitOrderNumber || existingOrder?.order_number || (String(orderId).startsWith('CB-') ? orderId : null);
+
+  // Update or add into local store for instant UI feedback
+  let updatedOrder = null;
+  if (existingOrder) {
+    updatedOrder = localOrders.updateStatus(resolvedId, newStatus);
+    if (resolvedNumber && resolvedNumber !== resolvedId) {
+      localOrders.updateStatus(resolvedNumber, newStatus);
+    }
+  } else {
+    updatedOrder = localOrders.addOrder({
+      id: resolvedId,
+      order_number: resolvedNumber || (String(orderId).startsWith('CB-') ? orderId : `CB-${Math.floor(1000 + Math.random() * 9000)}`),
+      status: newStatus,
+      updated_at: new Date().toISOString()
+    });
+  }
+
+  // 2. Broadcast status update across devices via Supabase Realtime WebSocket
+  const detailPayload = {
+    orderId: resolvedId,
+    orderNumber: resolvedNumber || updatedOrder?.order_number,
+    status: newStatus,
+    updated_at: new Date().toISOString()
+  };
+
   try {
     const channel = getKitchenOrdersChannel();
     if (channel) {
       const doSend = () => {
-        channel.send({
+        return channel.send({
           type: 'broadcast',
           event: 'status_update',
-          payload: {
-            orderId: resolvedId,
-            orderNumber: resolvedNumber,
-            status: newStatus,
-            updated_at: new Date().toISOString()
-          }
+          payload: detailPayload
         }).catch(() => {});
       };
 
       if (channel.state === 'joined') {
         doSend();
+        setTimeout(doSend, 200);
       } else {
         channel.subscribe((status) => {
-          if (status === 'SUBSCRIBED') doSend();
+          if (status === 'SUBSCRIBED') {
+            doSend();
+            setTimeout(doSend, 200);
+          }
         });
-        setTimeout(doSend, 400);
+        setTimeout(doSend, 350);
       }
     }
   } catch (bcErr) {
     console.warn('Realtime status broadcast warning:', bcErr);
   }
 
-  // 3. If running with live database and a UUID order, attempt server update
+  // 3. Attempt server database update (non-blocking)
   let data = null;
-  if (!isDemo && isSupabaseConfigured && supabase && !String(orderId).startsWith('demo-') && !String(orderId).startsWith('local-') && !String(orderId).startsWith('order-')) {
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(orderId));
+  if (!isDemo && isSupabaseConfigured && supabase) {
     try {
-      const updatePromise = supabase
+      let updateQuery = supabase
         .from('orders')
         .update({ 
           status: newStatus,
           updated_at: new Date().toISOString()
-        })
-        .eq('id', orderId)
-        .select(`
-          id,
-          order_number,
-          theatre_id,
-          screen_id,
-          theatre_name,
-          screen_name,
-          seat_code,
-          customer_name,
-          customer_phone,
-          special_notes,
-          status,
-          subtotal,
-          tax_amount,
-          total_amount,
-          created_at,
-          updated_at,
-          order_items (
-            id,
-            menu_item_id,
-            item_name,
-            quantity,
-            unit_price,
-            total_price
-          )
-        `)
-        .maybeSingle();
+        });
 
+      if (isUuid) {
+        updateQuery = updateQuery.eq('id', orderId);
+      } else if (resolvedNumber) {
+        updateQuery = updateQuery.eq('order_number', resolvedNumber);
+      } else {
+        updateQuery = updateQuery.eq('id', orderId);
+      }
+
+      const updatePromise = updateQuery.select(`id, order_number, status, updated_at`).maybeSingle();
       const res = await Promise.race([
         updatePromise,
         new Promise((_, reject) => setTimeout(() => reject(new Error('DB update timeout')), 1200))
       ]);
       data = res?.data;
     } catch (e) {
-      console.warn('Server status update error:', e);
+      // quiet warning
     }
   }
 
-  return data || localOrders.getOrders().find(o => o.id === orderId || o.order_number === orderId);
+  return data || updatedOrder || localOrders.getOrders().find(o => o.id === orderId || o.order_number === orderId);
 }
 
 /**
@@ -1050,41 +1180,30 @@ export function subscribeToKitchenOrders({ onInsert, onUpdate, isDemo = false })
             }
           } catch (e) {}
         })
-        .on(
-          'postgres_changes',
-          {
-            event: 'INSERT',
-            schema: 'public',
-            table: 'orders'
-          },
-          async (payload) => {
-            try {
-              const { data } = await supabase
-                .from('orders')
-                .select('*, order_items(*)')
-                .eq('id', payload.new.id)
-                .single();
-
-              if (data) handleNew(data);
-              else handleNew(payload.new);
-            } catch {
-              handleNew(payload.new);
+        .on('broadcast', { event: 'request_status_sync' }, (msg) => {
+          try {
+            const req = msg?.payload;
+            if (req) {
+              const currentOrders = localOrders.getOrders();
+              const match = currentOrders.find(o => 
+                (req.orderId && (o.id === req.orderId || o.order_number === req.orderId)) ||
+                (req.orderNumber && (o.order_number === req.orderNumber || o.id === req.orderNumber))
+              );
+              if (match && match.status) {
+                sbChannel.send({
+                  type: 'broadcast',
+                  event: 'status_update',
+                  payload: {
+                    orderId: match.id,
+                    orderNumber: match.order_number,
+                    status: match.status,
+                    updated_at: match.updated_at || new Date().toISOString()
+                  }
+                }).catch(() => {});
+              }
             }
-          }
-        )
-        .on(
-          'postgres_changes',
-          {
-            event: 'UPDATE',
-            schema: 'public',
-            table: 'orders'
-          },
-          (payload) => {
-            if (payload?.new) {
-              handleStatus(payload.new);
-            }
-          }
-        );
+          } catch (e) {}
+        });
 
       if (sbChannel.state === 'joined') {
         sbChannel.send({
