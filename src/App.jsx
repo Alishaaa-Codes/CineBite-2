@@ -171,8 +171,11 @@ export default function App() {
   // Add new food item from Kitchen Dashboard
   const handleAddNewItem = useCallback((newItem) => {
     setMenuItems((prev) => {
-      const updated = [newItem, ...prev];
-      broadcastMenuSync(updated);
+      const updated = [newItem, ...prev.filter(i => i.id !== newItem.id)];
+      try {
+        localStorage.setItem('cinebite_menu_items', JSON.stringify(updated));
+      } catch (e) {}
+      setTimeout(() => broadcastMenuSync(updated), 0);
       return updated;
     });
   }, []);
@@ -188,7 +191,10 @@ export default function App() {
         }
         return item;
       });
-      broadcastMenuStockToggle(itemId, nextState, updated);
+      try {
+        localStorage.setItem('cinebite_menu_items', JSON.stringify(updated));
+      } catch (e) {}
+      setTimeout(() => broadcastMenuStockToggle(itemId, nextState, updated), 0);
       return updated;
     });
   }, []);

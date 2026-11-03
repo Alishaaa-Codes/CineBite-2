@@ -54,39 +54,10 @@ export function getKitchenOrdersChannel() {
     liveKitchenChannel = supabase.channel('cinebite-live-kitchen', {
       config: {
         broadcast: {
-          ack: true
+          ack: false
         }
       }
     });
-
-    // Attach Postgres database change listeners ONCE before subscribing
-    try {
-      liveKitchenChannel
-        .on(
-          'postgres_changes',
-          { event: 'UPDATE', schema: 'public', table: 'orders' },
-          (payload) => {
-            if (payload?.new && typeof window !== 'undefined') {
-              const detail = {
-                id: payload.new.id,
-                orderId: payload.new.id,
-                orderNumber: payload.new.order_number,
-                status: payload.new.status
-              };
-              window.dispatchEvent(new CustomEvent('cinebite:order-updated', { detail }));
-            }
-          }
-        )
-        .on(
-          'postgres_changes',
-          { event: 'INSERT', schema: 'public', table: 'orders' },
-          (payload) => {
-            if (payload?.new && typeof window !== 'undefined') {
-              window.dispatchEvent(new CustomEvent('cinebite:new-order', { detail: payload.new }));
-            }
-          }
-        );
-    } catch (e) {}
 
     if (typeof window !== 'undefined') {
       liveKitchenChannel.subscribe();
@@ -258,14 +229,25 @@ class LocalOrdersStore {
     this.notify(orders);
   }
 
-  addOrder(order) {
+  addOrder(order, options = {}) {
     if (!order) return null;
+    const silent = Boolean(options.silent);
     const current = this.getOrders();
     const exists = current.some(o => o.id === order.id || (order.order_number && o.order_number === order.order_number));
-    const updated = exists 
-      ? current.map(o => (o.id === order.id || (order.order_number && o.order_number === order.order_number) ? { ...o, ...order } : o))
-      : [order, ...current];
+
+    if (exists) {
+      const updated = current.map(o => (o.id === order.id || (order.order_number && o.order_number === order.order_number) ? { ...o, ...order } : o));
+      this.saveOrders(updated);
+      return order;
+    }
+
+    const updated = [order, ...current];
     this.saveOrders(updated);
+
+    if (silent) {
+      return order;
+    }
+
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('cinebite:new-order', { detail: order }));
       try {
@@ -282,17 +264,35 @@ class LocalOrdersStore {
     return order;
   }
 
-  updateStatus(orderId, newStatus) {
+  updateStatus(orderId, newStatus, options = {}) {
+    if (!orderId || !newStatus) return null;
+    const silent = Boolean(options.silent);
     const current = this.getOrders();
     let matchedOrder = null;
+    let hasChanged = false;
+
     const updated = current.map(o => {
       if (o.id === orderId || o.order_number === orderId) {
+        if (o.status === newStatus) {
+          matchedOrder = o;
+          return o;
+        }
+        hasChanged = true;
         matchedOrder = { ...o, status: newStatus, updated_at: new Date().toISOString() };
         return matchedOrder;
       }
       return o;
     });
+
+    if (!hasChanged) {
+      return matchedOrder || current.find(o => o.id === orderId || o.order_number === orderId);
+    }
+
     this.saveOrders(updated);
+
+    if (silent) {
+      return matchedOrder;
+    }
 
     const detailPayload = {
       id: orderId,
@@ -318,7 +318,7 @@ class LocalOrdersStore {
       }
     } catch (e) {}
 
-    return matchedOrder || updated.find(o => o.id === orderId || o.order_number === orderId);
+    return matchedOrder;
   }
 
   subscribe(listener) {
@@ -623,10 +623,10 @@ export function subscribeToOrderStatus(optionsOrId, onStatusChange) {
 
     highestStatusSeen = newStatus;
 
-    // 1. Update local store so poller and other tabs see the freshest status
+    // 1. Update local store silently (silent: true prevents recursive CustomEvent dispatch)
     try {
-      if (orderId) localOrders.updateStatus(orderId, newStatus);
-      if (orderNumber) localOrders.updateStatus(orderNumber, newStatus);
+      if (orderId) localOrders.updateStatus(orderId, newStatus, { silent: true });
+      if (orderNumber) localOrders.updateStatus(orderNumber, newStatus, { silent: true });
     } catch (e) {}
 
     // 2. Update active order TTL entry in localStorage
@@ -1091,21 +1091,25 @@ export async function updateOrderStatus(orderId, newStatus, isDemo = false, expl
  * 5. Supabase postgres_changes
  */
 export function subscribeToKitchenOrders({ onInsert, onUpdate, isDemo = false }) {
-  const handleNew = (order) => {
+  const handleNew = (order, isFromWindow = false) => {
     if (!order) return;
-    localOrders.addOrder(order);
+    if (!isFromWindow) {
+      localOrders.addOrder(order, { silent: true });
+    }
     if (onInsert) onInsert(order);
   };
 
-  const handleStatus = (detail) => {
+  const handleStatus = (detail, isFromWindow = false) => {
     if (!detail) return;
-    localOrders.updateStatus(detail.id || detail.orderId, detail.status);
+    if (!isFromWindow) {
+      localOrders.updateStatus(detail.id || detail.orderId, detail.status, { silent: true });
+    }
     if (onUpdate) onUpdate(detail);
   };
 
   // 1. Same-window CustomEvent listener
-  const handleWindowEvent = (e) => handleNew(e.detail);
-  const handleWindowUpdate = (e) => handleStatus(e.detail);
+  const handleWindowEvent = (e) => handleNew(e.detail, true);
+  const handleWindowUpdate = (e) => handleStatus(e.detail, true);
 
   if (typeof window !== 'undefined') {
     window.addEventListener('cinebite:new-order', handleWindowEvent);
@@ -1293,10 +1297,15 @@ export function broadcastMenuStockToggle(itemId, isOutOfStock, updatedMenuItems)
 
       if (channel.state === 'joined') {
         doSend();
+        setTimeout(doSend, 200);
       } else {
         channel.subscribe((status) => {
-          if (status === 'SUBSCRIBED') doSend();
+          if (status === 'SUBSCRIBED') {
+            doSend();
+            setTimeout(doSend, 200);
+          }
         });
+        setTimeout(doSend, 350);
       }
     }
   } catch (e) {}
@@ -1332,10 +1341,15 @@ export function broadcastMenuSync(updatedMenuItems) {
 
       if (channel.state === 'joined') {
         doSend();
+        setTimeout(doSend, 200);
       } else {
         channel.subscribe((status) => {
-          if (status === 'SUBSCRIBED') doSend();
+          if (status === 'SUBSCRIBED') {
+            doSend();
+            setTimeout(doSend, 200);
+          }
         });
+        setTimeout(doSend, 350);
       }
     }
   } catch (e) {}
