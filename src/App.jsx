@@ -188,7 +188,7 @@ export default function App() {
       localStorage.setItem('cinebite_menu_items', JSON.stringify(nextList));
     } catch (e) {}
     setMenuItems(nextList);
-    broadcastMenuSync(nextList);
+    broadcastMenuSync(nextList, newItem);
   }, []);
 
   // Toggle item in/out of stock from Kitchen Dashboard

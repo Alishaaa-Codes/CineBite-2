@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { MENU_ITEMS } from '../data/mockMenu';
+import { MENU_ITEMS } from '../data/mockMenu.js';
 
 // Read and sanitize Vite environment variables with production fallback
 const FALLBACK_SUPABASE_URL = 'https://vvowuokndzefnhdlhgqm.supabase.co';
@@ -52,10 +52,20 @@ let liveKitchenChannel = null;
 export function getKitchenOrdersChannel() {
   if (!supabase) return null;
   if (!liveKitchenChannel) {
+    const clientId = typeof window !== 'undefined'
+      ? (sessionStorage.getItem('cinebite_client_id') || ('cli-' + Math.random().toString(36).substring(2, 9)))
+      : 'server';
+    if (typeof window !== 'undefined') {
+      try { sessionStorage.setItem('cinebite_client_id', clientId); } catch (e) {}
+    }
+
     liveKitchenChannel = supabase.channel('cinebite-live-kitchen', {
       config: {
         broadcast: {
           ack: false
+        },
+        presence: {
+          key: clientId
         }
       }
     });
@@ -1370,7 +1380,7 @@ export function broadcastMenuStockToggle(itemId, isOutOfStock, updatedMenuItems)
 /**
  * Broadcasts the entire menu snapshot across all connected devices (e.g. after adding an item)
  */
-export function broadcastMenuSync(updatedMenuItems) {
+export function broadcastMenuSync(updatedMenuItems, singleItem = null) {
   if (typeof window === 'undefined' || !updatedMenuItems) return;
 
   let merged = updatedMenuItems;
@@ -1384,38 +1394,49 @@ export function broadcastMenuSync(updatedMenuItems) {
   const bc = getSharedBroadcastChannel();
   if (bc) {
     try {
-      bc.postMessage({ type: 'menu_sync', menuItems: merged });
+      bc.postMessage({ type: 'menu_sync', menuItems: merged, item: singleItem });
     } catch (e) {}
   }
 
   try {
     const channel = getKitchenOrdersChannel();
     if (channel) {
+      // Also update Phoenix Presence so newly joining devices get it automatically
+      try {
+        if (channel.state === 'joined') {
+          channel.track({ menuItems: merged, updatedAt: Date.now() }).catch(() => {});
+        }
+      } catch (e) {}
+
       const doSend = () => {
-        return channel
-          .send({
-            type: 'broadcast',
-            event: 'menu_sync',
-            payload: { menuItems: merged }
-          })
-          .catch(() => {});
+        try {
+          if (channel.state === 'joined') {
+            channel
+              .send({
+                type: 'broadcast',
+                event: 'menu_sync',
+                payload: { menuItems: merged, item: singleItem, sentAt: Date.now() }
+              })
+              .catch(() => {});
+
+            if (singleItem && singleItem.id) {
+              channel
+                .send({
+                  type: 'broadcast',
+                  event: 'menu_item_add',
+                  payload: { item: singleItem, sentAt: Date.now() }
+                })
+                .catch(() => {});
+            }
+          }
+        } catch (err) {}
       };
 
-      if (channel.state === 'joined') {
-        doSend();
-        setTimeout(doSend, 200);
-        setTimeout(doSend, 600);
-      } else {
-        channel.subscribe((status) => {
-          if (status === 'SUBSCRIBED') {
-            doSend();
-            setTimeout(doSend, 200);
-            setTimeout(doSend, 600);
-          }
-        });
-        setTimeout(doSend, 350);
-        setTimeout(doSend, 800);
-      }
+      // Multi-burst transmission to guarantee delivery across mobile network latencies
+      doSend();
+      setTimeout(doSend, 200);
+      setTimeout(doSend, 600);
+      setTimeout(doSend, 1400);
     }
   } catch (e) {}
 }
@@ -1428,39 +1449,46 @@ export function subscribeToMenuUpdates(onMenuUpdate) {
 
   // 1. Same-window CustomEvent listener
   const handleLocalMenuUpdate = (e) => {
-    const items = e?.detail?.menuItems;
-    if (Array.isArray(items)) {
-      onMenuUpdate(items);
-    }
+    try {
+      const items = e?.detail?.menuItems;
+      if (Array.isArray(items) && items.length > 0) {
+        onMenuUpdate(items);
+      }
+    } catch (e) {}
   };
   window.addEventListener('cinebite:menu-updated', handleLocalMenuUpdate);
 
   // 2. Cross-tab BroadcastChannel listener
   const bc = getSharedBroadcastChannel();
   const handleBcMessage = (e) => {
-    const data = e?.data;
-    if (data?.type === 'stock_toggle') {
-      if (Array.isArray(data.menuItems)) {
-        const current = JSON.parse(localStorage.getItem('cinebite_menu_items') || '[]');
-        const merged = mergeMenuItems(current, data.menuItems);
-        try { localStorage.setItem('cinebite_menu_items', JSON.stringify(merged)); } catch (err) {}
-        onMenuUpdate(merged);
-      } else if (data.itemId) {
-        try {
+    try {
+      const data = e?.data;
+      if (data?.type === 'stock_toggle') {
+        if (Array.isArray(data.menuItems)) {
+          const current = JSON.parse(localStorage.getItem('cinebite_menu_items') || '[]');
+          const merged = mergeMenuItems(current, data.menuItems);
+          try { localStorage.setItem('cinebite_menu_items', JSON.stringify(merged)); } catch (err) {}
+          onMenuUpdate(merged);
+        } else if (data.itemId) {
           const current = JSON.parse(localStorage.getItem('cinebite_menu_items') || '[]');
           if (Array.isArray(current) && current.length) {
             const next = current.map((it) => (it.id === data.itemId ? { ...it, isOutOfStock: data.isOutOfStock } : it));
             try { localStorage.setItem('cinebite_menu_items', JSON.stringify(next)); } catch (err) {}
             onMenuUpdate(next);
           }
-        } catch (err) {}
+        }
+      } else if (data?.type === 'menu_sync' && Array.isArray(data.menuItems)) {
+        const current = JSON.parse(localStorage.getItem('cinebite_menu_items') || '[]');
+        const merged = mergeMenuItems(current, data.menuItems);
+        try { localStorage.setItem('cinebite_menu_items', JSON.stringify(merged)); } catch (err) {}
+        onMenuUpdate(merged);
+      } else if (data?.item && data.item.id) {
+        const current = JSON.parse(localStorage.getItem('cinebite_menu_items') || '[]');
+        const merged = mergeMenuItems(current, [data.item]);
+        try { localStorage.setItem('cinebite_menu_items', JSON.stringify(merged)); } catch (err) {}
+        onMenuUpdate(merged);
       }
-    } else if (data?.type === 'menu_sync' && Array.isArray(data.menuItems)) {
-      const current = JSON.parse(localStorage.getItem('cinebite_menu_items') || '[]');
-      const merged = mergeMenuItems(current, data.menuItems);
-      try { localStorage.setItem('cinebite_menu_items', JSON.stringify(merged)); } catch (err) {}
-      onMenuUpdate(merged);
-    }
+    } catch (e) {}
   };
   if (bc) {
     try {
@@ -1470,16 +1498,14 @@ export function subscribeToMenuUpdates(onMenuUpdate) {
 
   // 3. Cross-tab localStorage listener
   const handleStorage = (e) => {
-    if (e.key === 'cinebite_menu_items' && e.newValue) {
-      try {
+    try {
+      if (e.key === 'cinebite_menu_items' && e.newValue) {
         const parsed = JSON.parse(e.newValue);
-        if (Array.isArray(parsed)) {
+        if (Array.isArray(parsed) && parsed.length > 0) {
           const merged = mergeMenuItems([], parsed);
           onMenuUpdate(merged);
         }
-      } catch (err) {}
-    } else if (e.key === 'cinebite_stock_sync' && e.newValue) {
-      try {
+      } else if (e.key === 'cinebite_stock_sync' && e.newValue) {
         const sync = JSON.parse(e.newValue);
         const current = JSON.parse(localStorage.getItem('cinebite_menu_items') || '[]');
         if (Array.isArray(current) && sync.itemId) {
@@ -1487,48 +1513,85 @@ export function subscribeToMenuUpdates(onMenuUpdate) {
           try { localStorage.setItem('cinebite_menu_items', JSON.stringify(next)); } catch (err) {}
           onMenuUpdate(next);
         }
-      } catch (err) {}
-    }
+      }
+    } catch (err) {}
   };
   window.addEventListener('storage', handleStorage);
 
-  // 4. Supabase Realtime Broadcast listener (Cross-Device WebSocket)
+  // 4. Supabase Realtime Broadcast & Presence listener (Cross-Device WebSocket)
+  let timers = [];
   const channel = getKitchenOrdersChannel();
   if (channel) {
     try {
       channel.on('broadcast', { event: 'menu_stock_toggle' }, (msg) => {
-        const payload = msg?.payload;
-        if (payload?.menuItems && Array.isArray(payload.menuItems)) {
-          try {
+        try {
+          const payload = msg?.payload;
+          if (payload?.menuItems && Array.isArray(payload.menuItems)) {
             const current = JSON.parse(localStorage.getItem('cinebite_menu_items') || '[]');
             const merged = mergeMenuItems(current, payload.menuItems);
             localStorage.setItem('cinebite_menu_items', JSON.stringify(merged));
             onMenuUpdate(merged);
-          } catch (e) {}
-        } else if (payload?.itemId !== undefined) {
-          try {
+          } else if (payload?.itemId !== undefined) {
             const current = JSON.parse(localStorage.getItem('cinebite_menu_items') || '[]');
             if (Array.isArray(current) && current.length) {
               const next = current.map((it) => (it.id === payload.itemId ? { ...it, isOutOfStock: payload.isOutOfStock } : it));
               localStorage.setItem('cinebite_menu_items', JSON.stringify(next));
               onMenuUpdate(next);
             }
-          } catch (e) {}
-        }
+          }
+        } catch (e) {}
       });
 
       channel.on('broadcast', { event: 'menu_sync' }, (msg) => {
-        const payload = msg?.payload;
-        if (payload?.menuItems && Array.isArray(payload.menuItems)) {
-          try {
+        try {
+          const payload = msg?.payload;
+          if (payload?.menuItems && Array.isArray(payload.menuItems)) {
             const current = JSON.parse(localStorage.getItem('cinebite_menu_items') || '[]');
             const merged = mergeMenuItems(current, payload.menuItems);
             localStorage.setItem('cinebite_menu_items', JSON.stringify(merged));
             onMenuUpdate(merged);
-          } catch (e) {}
-        }
+          } else if (payload?.item && payload.item.id) {
+            const current = JSON.parse(localStorage.getItem('cinebite_menu_items') || '[]');
+            const merged = mergeMenuItems(current, [payload.item]);
+            localStorage.setItem('cinebite_menu_items', JSON.stringify(merged));
+            onMenuUpdate(merged);
+          }
+        } catch (e) {}
       });
 
+      channel.on('broadcast', { event: 'menu_item_add' }, (msg) => {
+        try {
+          const item = msg?.payload?.item;
+          if (item && item.id) {
+            const current = JSON.parse(localStorage.getItem('cinebite_menu_items') || '[]');
+            const merged = mergeMenuItems(current, [item]);
+            localStorage.setItem('cinebite_menu_items', JSON.stringify(merged));
+            onMenuUpdate(merged);
+          }
+        } catch (e) {}
+      });
+
+      // Presence state sync (server automatically pushes state from any active kitchen/staff tab)
+      channel.on('presence', { event: 'sync' }, () => {
+        try {
+          const state = channel.presenceState();
+          for (const key of Object.keys(state)) {
+            const presences = state[key];
+            if (Array.isArray(presences)) {
+              for (const p of presences) {
+                if (Array.isArray(p.menuItems) && p.menuItems.length > 0) {
+                  const current = JSON.parse(localStorage.getItem('cinebite_menu_items') || '[]');
+                  const merged = mergeMenuItems(current, p.menuItems);
+                  localStorage.setItem('cinebite_menu_items', JSON.stringify(merged));
+                  onMenuUpdate(merged);
+                }
+              }
+            }
+          }
+        } catch (e) {}
+      });
+
+      // Answer sync requests from newly connected or refreshed devices
       channel.on('broadcast', { event: 'request_menu_sync' }, () => {
         try {
           const current = JSON.parse(localStorage.getItem('cinebite_menu_items') || '[]');
@@ -1536,41 +1599,41 @@ export function subscribeToMenuUpdates(onMenuUpdate) {
           const hasCustomItems = current.some((it) => !defaultIds.has(it.id));
           const hasStockChanges = current.some((it) => it.isOutOfStock);
 
-          // ONLY reply if this client actually has custom added items or stock toggles
           if (hasCustomItems || hasStockChanges) {
             channel.send({
               type: 'broadcast',
               event: 'menu_sync',
-              payload: { menuItems: current }
+              payload: { menuItems: current, answeredAt: Date.now() }
             }).catch(() => {});
           }
         } catch (e) {}
       });
 
-      // Request latest menu state from active tabs
-      if (channel.state === 'joined') {
-        channel.send({
-          type: 'broadcast',
-          event: 'request_menu_sync',
-          payload: { time: Date.now() }
-        }).catch(() => {});
-      } else {
-        channel.subscribe((status) => {
-          if (status === 'SUBSCRIBED') {
+      // Active handshake: repeatedly poll for menu sync on connection until received
+      const sendSyncRequest = () => {
+        try {
+          if (channel && channel.state === 'joined') {
             channel.send({
               type: 'broadcast',
               event: 'request_menu_sync',
               payload: { time: Date.now() }
             }).catch(() => {});
           }
-        });
-      }
+        } catch (e) {}
+      };
+
+      sendSyncRequest();
+      timers.push(setTimeout(sendSyncRequest, 300));
+      timers.push(setTimeout(sendSyncRequest, 800));
+      timers.push(setTimeout(sendSyncRequest, 1600));
+      timers.push(setTimeout(sendSyncRequest, 3000));
     } catch (e) {
       console.warn('Realtime menu subscription warning:', e);
     }
   }
 
   return () => {
+    timers.forEach((t) => clearTimeout(t));
     window.removeEventListener('cinebite:menu-updated', handleLocalMenuUpdate);
     window.removeEventListener('storage', handleStorage);
     if (bc) {

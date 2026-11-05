@@ -67,10 +67,49 @@ export default function AddItemModal({ isOpen, onClose, onAddItem }) {
 
     const reader = new FileReader();
     reader.onload = (event) => {
-      const result = event.target?.result;
-      setImagePreview(result);
-      setImageUrl(result);
-      setError('');
+      const rawDataUrl = event.target?.result;
+      if (typeof window !== 'undefined' && typeof Image !== 'undefined') {
+        const img = new Image();
+        img.onload = () => {
+          try {
+            const canvas = document.createElement('canvas');
+            const maxDimension = 400;
+            let w = img.width;
+            let h = img.height;
+            if (w > maxDimension || h > maxDimension) {
+              if (w > h) {
+                h = Math.round((h * maxDimension) / w);
+                w = maxDimension;
+              } else {
+                w = Math.round((w * maxDimension) / h);
+                h = maxDimension;
+              }
+            }
+            canvas.width = w;
+            canvas.height = h;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, w, h);
+            const compressed = canvas.toDataURL('image/jpeg', 0.68);
+            setImagePreview(compressed);
+            setImageUrl(compressed);
+            setError('');
+          } catch (canvasErr) {
+            setImagePreview(rawDataUrl);
+            setImageUrl(rawDataUrl);
+            setError('');
+          }
+        };
+        img.onerror = () => {
+          setImagePreview(rawDataUrl);
+          setImageUrl(rawDataUrl);
+          setError('');
+        };
+        img.src = rawDataUrl;
+      } else {
+        setImagePreview(rawDataUrl);
+        setImageUrl(rawDataUrl);
+        setError('');
+      }
     };
     reader.readAsDataURL(file);
   };

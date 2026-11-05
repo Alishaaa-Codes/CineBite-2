@@ -213,37 +213,34 @@ export default function SeatModal({
               </div>
             </div>
 
-            {/* Seat Number & Order In-Seat Button (Pixel-Perfect Alignment) */}
-            <div className="netflix-cta-group">
+            {/* Seat Number Box - Exactly matching Theatre Name and Screen / Audi in length and width */}
+            <div className="netflix-input-box">
               <label className="netflix-input-label">
                 <Armchair size={13} color="#E50914" />
                 Seat Number
               </label>
-
-              <div className="netflix-seat-action-row">
-                <input
-                  type="text"
-                  className="netflix-text-input"
-                  value={seat}
-                  onChange={(e) => {
-                    setSeat(e.target.value);
-                    if (errorMsg) setErrorMsg('');
-                  }}
-                  placeholder="Enter seat (e.g. F-14 or A-08)"
-                  required
-                  autoFocus
-                />
-
-                <button type="submit" className="netflix-btn-get-started">
-                  <span>Order In-Seat</span>
-                  <ChevronRight size={20} strokeWidth={2.5} />
-                </button>
-              </div>
-
+              <input
+                type="text"
+                className="netflix-text-input"
+                value={seat}
+                onChange={(e) => {
+                  setSeat(e.target.value);
+                  if (errorMsg) setErrorMsg('');
+                }}
+                placeholder="Enter seat (e.g. F-14 or A-08)"
+                required
+                autoFocus
+              />
               <span className="netflix-input-hint">
                 Format: Row Letter + Number (e.g. F-14, A-08, VIP-02)
               </span>
             </div>
+
+            {/* Order In-Seat Red CTA Button */}
+            <button type="submit" className="netflix-btn-get-started netflix-btn-full">
+              <span>Order In-Seat</span>
+              <ChevronRight size={22} strokeWidth={2.5} />
+            </button>
           </form>
         </main>
 

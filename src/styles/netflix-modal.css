@@ -249,12 +249,15 @@
   border-radius: 4px;
   color: #FFFFFF;
   padding: 0 1rem;
-  font-size: 0.95rem;
+  font-size: 1rem;
   font-weight: 600;
   outline: none;
   transition: all 0.2s ease;
-  height: 48px;
+  height: 50px;
+  min-height: 50px;
   box-sizing: border-box;
+  -webkit-appearance: none;
+  appearance: none;
 }
 
 .netflix-text-input:focus,
@@ -269,27 +272,7 @@
   color: #FFFFFF;
 }
 
-/* Seat Row & Big Red Button - Pixel-Perfect Horizontal & Vertical Alignment */
-.netflix-cta-group {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  width: 100%;
-}
-
-.netflix-seat-action-row {
-  display: flex;
-  align-items: stretch;
-  gap: 12px;
-  width: 100%;
-}
-
-.netflix-seat-action-row .netflix-text-input {
-  flex: 1;
-  height: 48px;
-  box-sizing: border-box;
-}
-
+/* Big Red CTA Button - Full Width on Mobile & Clean */
 .netflix-btn-get-started {
   background: #E50914;
   color: #FFFFFF;
@@ -306,9 +289,14 @@
   transition: background 0.2s ease, transform 0.15s ease, box-shadow 0.2s ease;
   white-space: nowrap;
   box-shadow: 0 4px 18px rgba(229, 9, 20, 0.5);
-  height: 48px;
+  height: 50px;
+  min-height: 50px;
   box-sizing: border-box;
-  flex-shrink: 0;
+}
+
+.netflix-btn-get-started.netflix-btn-full {
+  width: 100%;
+  margin-top: 8px;
 }
 
 .netflix-btn-get-started:hover {
@@ -433,19 +421,18 @@
 }
 
 @media (max-width: 520px) {
-  .netflix-seat-action-row {
-    flex-direction: column;
-    gap: 10px;
+  .netflix-text-input,
+  .netflix-select-input {
+    width: 100%;
+    height: 50px;
+    min-height: 50px;
+    font-size: 1rem;
   }
 
-  .netflix-seat-action-row .netflix-text-input {
+  .netflix-btn-get-started {
     width: 100%;
-    height: 48px;
-  }
-
-  .netflix-seat-action-row .netflix-btn-get-started {
-    width: 100%;
-    height: 48px;
+    height: 50px;
+    min-height: 50px;
     font-size: 1.15rem;
   }
 }
