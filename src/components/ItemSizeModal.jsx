@@ -131,8 +131,10 @@ export default function ItemSizeModal({
               <button
                 type="button"
                 className="item-size-qty-btn"
-                onClick={() => setQuantity((q) => q + 1)}
+                onClick={() => setQuantity((q) => Math.min(10, q + 1))}
+                disabled={quantity >= 10}
                 aria-label="Increase quantity"
+                title={quantity >= 10 ? 'Maximum 10 items allowed' : 'Increase quantity'}
               >
                 <Plus size={15} />
               </button>

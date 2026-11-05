@@ -78,12 +78,13 @@ export default function CartDrawer({
     }
 
     // 4. Valid Seat details
-    const seat = cinemaDetails.seatNumber ? cinemaDetails.seatNumber.trim() : '';
-    if (!seat || seat.length < 2) {
+    const CINEMA_SEAT_REGEX = /^(?:[A-Z]{1,2}|VIP|BOX|BALC|BALCONY|RECLINER|SOFA)[- ]?[0-9]{1,3}$/i;
+    const seat = cinemaDetails.seatNumber ? cinemaDetails.seatNumber.trim().toUpperCase() : '';
+    if (!seat || !CINEMA_SEAT_REGEX.test(seat)) {
       return {
         field: 'seat',
-        title: 'Valid Seat Required',
-        desc: 'Please enter a valid seat number (e.g. F-14 or E-12) so cinema runners can deliver to your seat.'
+        title: 'Valid Cinema Seat Required',
+        desc: 'Please enter a valid cinema seat number (e.g. F-14, A-08, VIP-02) so cinema runners can deliver to your seat.'
       };
     }
 
@@ -282,8 +283,10 @@ export default function CartDrawer({
                       <span className="cart-row-qty-val">{cartItem.quantity}</span>
                       <button
                         className="cart-row-qty-btn"
-                        onClick={() => onUpdateQuantity(cartItem.id, cartItem.quantity + 1)}
+                        onClick={() => onUpdateQuantity(cartItem.id, Math.min(10, cartItem.quantity + 1))}
+                        disabled={cartItem.quantity >= 10}
                         aria-label="Increase quantity"
+                        title={cartItem.quantity >= 10 ? 'Maximum 10 items per dish' : 'Increase quantity'}
                       >
                         <Plus size={13} />
                       </button>

@@ -98,15 +98,23 @@ export default function AddItemModal({ isOpen, onClose, onAddItem }) {
       return;
     }
 
-    const basePriceNum = Number(price) || Number(largePrice) || 220;
-    if (basePriceNum <= 0) {
-      setError('Please enter a valid price.');
-      return;
-    }
+    let finalPrice = 0;
+    let sP = 0;
+    let mP = 0;
+    let lP = 0;
 
-    const sP = Number(smallPrice) || Math.round(basePriceNum * 0.7) || 150;
-    const mP = Number(medPrice) || Math.round(basePriceNum * 0.85) || 190;
-    const lP = Number(largePrice) || basePriceNum || 240;
+    if (hasPortions) {
+      sP = Number(smallPrice) || 160;
+      mP = Number(medPrice) || 200;
+      lP = Number(largePrice) || 250;
+      finalPrice = lP;
+    } else {
+      finalPrice = Number(price);
+      if (!finalPrice || finalPrice <= 0) {
+        setError('Please enter a valid price for the item.');
+        return;
+      }
+    }
 
     const finalImage = imageUrl || DEFAULT_CATEGORY_IMAGES[categoryId] || DEFAULT_CATEGORY_IMAGES.snacks;
 
@@ -115,7 +123,7 @@ export default function AddItemModal({ isOpen, onClose, onAddItem }) {
       name: trimmedName,
       categoryId,
       description: description.trim() || 'Freshly prepared at CineBite cinema kitchen.',
-      price: hasPortions ? lP : basePriceNum,
+      price: finalPrice,
       isVeg,
       tag: tag.trim() || undefined,
       portion: hasPortions ? `Large (${largeWeight || '250g'})` : (singlePortionLabel.trim() || 'Standard Serve'),
@@ -273,30 +281,41 @@ export default function AddItemModal({ isOpen, onClose, onAddItem }) {
                 </div>
               </div>
 
-              {/* Base Price */}
-              <div className="form-group">
-                <label className="form-label">{hasPortions ? 'Standard / Large Price (₹) *' : 'Price (₹) *'}</label>
-                <input 
-                  type="number" 
-                  className="form-input" 
-                  placeholder="e.g. 240"
-                  min="1"
-                  value={price}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setPrice(val);
-                    if (val && hasPortions) {
-                      const num = Number(val);
-                      if (num > 0) {
-                        setLargePrice(val);
-                        setMedPrice(String(Math.round(num * 0.85)));
-                        setSmallPrice(String(Math.round(num * 0.7)));
-                      }
-                    }
-                  }}
-                  required
-                />
-              </div>
+              {/* Base Price (Visible & required only when item does NOT have portions) */}
+              {!hasPortions ? (
+                <div className="form-group">
+                  <label className="form-label">Price (₹) *</label>
+                  <input 
+                    type="number" 
+                    className="form-input" 
+                    placeholder="e.g. 240"
+                    min="1"
+                    value={price}
+                    onChange={(e) => setPrice(e.target.value)}
+                    required
+                  />
+                </div>
+              ) : (
+                <div className="form-group" style={{
+                  padding: '12px 14px',
+                  borderRadius: 'var(--radius-md)',
+                  background: 'rgba(255, 159, 28, 0.08)',
+                  border: '1px solid rgba(255, 159, 28, 0.25)',
+                  fontSize: '0.8rem',
+                  color: 'var(--text-secondary)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px'
+                }}>
+                  <Scale size={18} color="#FF9F1C" style={{ flexShrink: 0 }} />
+                  <div>
+                    <strong style={{ color: '#FFB703', display: 'block', marginBottom: '2px' }}>
+                      Standard Serve Price: OFF
+                    </strong>
+                    Individual prices for Small, Medium, and Large portions are configured on the right.
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Right Column: Image Upload & Portions */}

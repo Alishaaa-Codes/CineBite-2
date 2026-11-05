@@ -213,7 +213,7 @@ export const DEFAULT_CINEMA_DETAILS = {
   screenId: '33333333-3333-3333-3333-333333333333',
   theaterName: 'PVR INOX Grand Cinema',
   screenName: 'Screen 2 (Audi 2 - Dolby Atmos)',
-  seatNumber: 'F-14',
+  seatNumber: '',
   screensAvailable: [
     'Screen 1 (IMAX Laser)',
     'Screen 2 (Audi 2 - Dolby Atmos)',

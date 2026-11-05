@@ -115,8 +115,10 @@ export default function FoodCard({
               <span className="card-qty-value">{cartQuantity}</span>
               <button
                 className="card-qty-btn"
-                onClick={() => onUpdateQuantity(item.id, cartQuantity + 1)}
+                onClick={() => onUpdateQuantity(item.id, Math.min(10, cartQuantity + 1))}
+                disabled={cartQuantity >= 10}
                 aria-label="Increase quantity"
+                title={cartQuantity >= 10 ? 'Maximum 10 items allowed' : 'Increase quantity'}
               >
                 <Plus size={14} />
               </button>

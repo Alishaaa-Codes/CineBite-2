@@ -3,7 +3,17 @@ import { X, ChevronRight, AlertCircle, Film, MapPin, Armchair, Check } from 'luc
 import feastBg from '../assets/images/cinema-feast-bg.png';
 import '../styles/netflix-modal.css';
 
-const QUICK_SEATS = ['E-12', 'F-14', 'G-08', 'H-10', 'B-04', 'VIP-02'];
+export const CINEMA_SEAT_REGEX = /^(?:[A-Z]{1,2}|VIP|BOX|BALC|BALCONY|RECLINER|SOFA)[- ]?[0-9]{1,3}$/i;
+
+export function formatCinemaSeat(seatInput) {
+  if (!seatInput) return '';
+  const trimmed = seatInput.trim().toUpperCase();
+  const match = trimmed.match(/^([A-Z]{1,2}|VIP|BOX|BALC|BALCONY|RECLINER|SOFA)[- ]?([0-9]{1,3})$/i);
+  if (match) {
+    return `${match[1].toUpperCase()}-${match[2]}`;
+  }
+  return trimmed;
+}
 
 export default function SeatModal({ 
   isOpen, 
@@ -43,10 +53,19 @@ export default function SeatModal({
       setErrorMsg('Please select a cinema screen/auditorium.');
       return;
     }
-    if (!seat.trim() || seat.trim().length < 2) {
-      setErrorMsg('Please enter your seat number (e.g., F-14, E-12).');
+
+    const trimmedSeat = seat.trim().toUpperCase();
+    if (!trimmedSeat) {
+      setErrorMsg('Please enter your seat number (e.g., F-14, A-08, VIP-02).');
       return;
     }
+
+    if (!CINEMA_SEAT_REGEX.test(trimmedSeat)) {
+      setErrorMsg('Invalid seat format. Please enter a valid cinema seat number (e.g. F-14, A-08, VIP-02). Arbitrary text or names like "F-alisha" are not permitted.');
+      return;
+    }
+
+    const formattedSeat = formatCinemaSeat(trimmedSeat);
 
     setErrorMsg('');
     if (typeof window !== 'undefined') {
@@ -56,7 +75,7 @@ export default function SeatModal({
       ...cinemaDetails,
       theaterName: theater.trim(),
       screenName: screen.trim(),
-      seatNumber: seat.trim().toUpperCase()
+      seatNumber: formattedSeat
     });
     onClose();
   };
@@ -123,7 +142,7 @@ export default function SeatModal({
               boxShadow: '0 0 15px rgba(34, 197, 94, 0.25)'
             }}>
               <Check size={14} strokeWidth={3} />
-              <span>Verified In-Seat QR Scan • Seat {seat || 'F-14'}</span>
+              <span>Verified In-Seat QR Scan{seat ? ` • Seat ${seat}` : ''}</span>
             </div>
           )}
 
@@ -133,7 +152,7 @@ export default function SeatModal({
 
           <p className="netflix-hero-prompt">
             {isFromQR 
-              ? `Seat ${seat || 'F-14'} ready for in-seat delivery. Confirm to explore the food menu!`
+              ? (seat ? `Seat ${seat} ready for in-seat delivery. Confirm to explore the food menu!` : 'In-seat delivery ready. Confirm your details to explore the food menu!')
               : 'Ready to order? Confirm your theatre & seat details to explore the menu.'}
           </p>
 
@@ -209,34 +228,19 @@ export default function SeatModal({
                     setSeat(e.target.value);
                     if (errorMsg) setErrorMsg('');
                   }}
-                  placeholder="Enter seat (e.g. F-14)"
+                  placeholder="Enter seat (e.g. F-14 or A-08)"
                   required
                   autoFocus
                 />
+                <span style={{ fontSize: '0.72rem', color: '#9CA3AF', marginTop: '4px', display: 'block' }}>
+                  Format: Row Letter + Number (e.g. F-14, A-08, VIP-02)
+                </span>
               </div>
 
               <button type="submit" className="netflix-btn-get-started">
                 <span>Order In-Seat</span>
                 <ChevronRight size={22} strokeWidth={2.5} />
               </button>
-            </div>
-
-            {/* Quick Select Seat Chips */}
-            <div className="netflix-quick-seats">
-              <span className="netflix-quick-label">Quick select:</span>
-              {QUICK_SEATS.map((qs) => (
-                <button
-                  key={qs}
-                  type="button"
-                  className={`netflix-seat-chip ${seat.toUpperCase() === qs ? 'active' : ''}`}
-                  onClick={() => {
-                    setSeat(qs);
-                    if (errorMsg) setErrorMsg('');
-                  }}
-                >
-                  {qs}
-                </button>
-              ))}
             </div>
           </form>
         </main>

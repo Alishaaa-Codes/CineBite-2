@@ -10,7 +10,9 @@ export default function Header({
   const screenLabel = cinemaDetails?.screenName 
     ? cinemaDetails.screenName.split('(')[0].trim() 
     : 'Screen 2';
-  const seatLabel = cinemaDetails?.seatNumber || 'F-14';
+  const seatLabel = cinemaDetails?.seatNumber 
+    ? `Seat ${cinemaDetails.seatNumber}` 
+    : 'Select Seat';
 
   return (
     <header className="cinema-header">
@@ -27,7 +29,7 @@ export default function Header({
             </h1>
             <div className="brand-location-tag" onClick={onOpenSeatModal} title="In-Seat Delivery Details">
               <span className="seat-live-dot" />
-              <span>{screenLabel} • Seat {seatLabel}</span>
+              <span>{screenLabel} • {seatLabel}</span>
             </div>
           </div>
         </div>

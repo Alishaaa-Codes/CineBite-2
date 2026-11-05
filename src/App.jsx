@@ -109,14 +109,17 @@ export default function App() {
       const urlSeat = params.get('seat');
       const urlTheater = params.get('theater');
 
+      const CINEMA_SEAT_REGEX = /^(?:[A-Z]{1,2}|VIP|BOX|BALC|BALCONY|RECLINER|SOFA)[- ]?[0-9]{1,3}$/i;
+      const validSeat = urlSeat && CINEMA_SEAT_REGEX.test(urlSeat.trim()) ? urlSeat.trim().toUpperCase() : '';
+
       return {
         ...DEFAULT_CINEMA_DETAILS,
         theaterName: urlTheater || DEFAULT_CINEMA_DETAILS.theaterName,
         screenName: urlScreen || DEFAULT_CINEMA_DETAILS.screenName,
-        seatNumber: urlSeat ? urlSeat.toUpperCase() : DEFAULT_CINEMA_DETAILS.seatNumber
+        seatNumber: validSeat
       };
     }
-    return DEFAULT_CINEMA_DETAILS;
+    return { ...DEFAULT_CINEMA_DETAILS, seatNumber: '' };
   });
 
   // 4. Cart & Modal States
@@ -301,10 +304,10 @@ export default function App() {
       const existing = prevCart.find((ci) => ci.id === cartItemId);
       if (existing) {
         return prevCart.map((ci) =>
-          ci.id === cartItemId ? { ...ci, quantity: ci.quantity + quantity } : ci
+          ci.id === cartItemId ? { ...ci, quantity: Math.min(10, ci.quantity + quantity) } : ci
         );
       }
-      return [...prevCart, { ...cartItem, quantity }];
+      return [...prevCart, { ...cartItem, quantity: Math.min(10, Math.max(1, quantity)) }];
     });
   };
 
@@ -313,8 +316,9 @@ export default function App() {
     setCart((prevCart) => {
       const existing = prevCart.find((ci) => ci.id === item.id);
       if (existing) {
+        if (existing.quantity >= 10) return prevCart;
         return prevCart.map((ci) =>
-          ci.id === item.id ? { ...ci, quantity: ci.quantity + 1 } : ci
+          ci.id === item.id ? { ...ci, quantity: Math.min(10, ci.quantity + 1) } : ci
         );
       }
       return [...prevCart, { ...item, quantity: 1 }];
@@ -326,9 +330,10 @@ export default function App() {
       handleRemoveItem(itemId);
       return;
     }
+    const clampedQty = Math.min(10, newQuantity);
     setCart((prevCart) =>
       prevCart.map((ci) =>
-        ci.id === itemId ? { ...ci, quantity: newQuantity } : ci
+        ci.id === itemId ? { ...ci, quantity: clampedQty } : ci
       )
     );
   };
