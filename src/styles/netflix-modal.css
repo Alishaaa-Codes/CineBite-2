@@ -248,11 +248,13 @@
   border: 1px solid rgba(255, 255, 255, 0.3);
   border-radius: 4px;
   color: #FFFFFF;
-  padding: 0.85rem 1rem;
+  padding: 0 1rem;
   font-size: 0.95rem;
   font-weight: 600;
   outline: none;
   transition: all 0.2s ease;
+  height: 48px;
+  box-sizing: border-box;
 }
 
 .netflix-text-input:focus,
@@ -267,12 +269,25 @@
   color: #FFFFFF;
 }
 
-/* Seat Row & Big Red Button */
-.netflix-cta-row {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 14px;
-  align-items: flex-end;
+/* Seat Row & Big Red Button - Pixel-Perfect Horizontal & Vertical Alignment */
+.netflix-cta-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.netflix-seat-action-row {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  width: 100%;
+}
+
+.netflix-seat-action-row .netflix-text-input {
+  flex: 1;
+  height: 48px;
+  box-sizing: border-box;
 }
 
 .netflix-btn-get-started {
@@ -280,10 +295,10 @@
   color: #FFFFFF;
   border: none;
   border-radius: 4px;
-  padding: 0.82rem 1.85rem;
-  font-size: 1.25rem;
+  padding: 0 1.75rem;
+  font-size: 1.15rem;
   font-weight: 800;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
@@ -292,6 +307,8 @@
   white-space: nowrap;
   box-shadow: 0 4px 18px rgba(229, 9, 20, 0.5);
   height: 48px;
+  box-sizing: border-box;
+  flex-shrink: 0;
 }
 
 .netflix-btn-get-started:hover {
@@ -302,6 +319,13 @@
 
 .netflix-btn-get-started:active {
   transform: translateY(0);
+}
+
+.netflix-input-hint {
+  font-size: 0.72rem;
+  color: #9CA3AF;
+  display: block;
+  margin-top: 2px;
 }
 
 /* Quick Select Seat Pills */
@@ -403,13 +427,25 @@
     gap: 12px;
   }
 
-  .netflix-btn-get-started {
-    width: 100%;
-    height: 46px;
-    font-size: 1.15rem;
-  }
-
   .netflix-poster-mosaic {
     grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 520px) {
+  .netflix-seat-action-row {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .netflix-seat-action-row .netflix-text-input {
+    width: 100%;
+    height: 48px;
+  }
+
+  .netflix-seat-action-row .netflix-btn-get-started {
+    width: 100%;
+    height: 48px;
+    font-size: 1.15rem;
   }
 }

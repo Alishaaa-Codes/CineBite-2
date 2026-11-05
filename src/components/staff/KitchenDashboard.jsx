@@ -397,7 +397,7 @@ export default function KitchenDashboard({
               <span>Sync</span>
             </button>
 
-            {/* + Add New Item Button */}
+            {/* Add New Item Button */}
             <button 
               className="kitchen-btn-icon kitchen-add-item-btn"
               onClick={() => setIsAddItemModalOpen(true)}
@@ -410,7 +410,7 @@ export default function KitchenDashboard({
               }}
             >
               <PlusCircle size={15} />
-              <span>+ Add Item</span>
+              <span>Add Item</span>
             </button>
 
             {/* Out of Stock Button */}

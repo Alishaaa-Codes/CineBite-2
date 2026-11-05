@@ -213,13 +213,14 @@ export default function SeatModal({
               </div>
             </div>
 
-            {/* Seat Number & Big Red Get Started Button */}
-            <div className="netflix-cta-row">
-              <div className="netflix-input-box" style={{ flex: 1 }}>
-                <label className="netflix-input-label">
-                  <Armchair size={13} color="#E50914" />
-                  Seat Number
-                </label>
+            {/* Seat Number & Order In-Seat Button (Pixel-Perfect Alignment) */}
+            <div className="netflix-cta-group">
+              <label className="netflix-input-label">
+                <Armchair size={13} color="#E50914" />
+                Seat Number
+              </label>
+
+              <div className="netflix-seat-action-row">
                 <input
                   type="text"
                   className="netflix-text-input"
@@ -232,15 +233,16 @@ export default function SeatModal({
                   required
                   autoFocus
                 />
-                <span style={{ fontSize: '0.72rem', color: '#9CA3AF', marginTop: '4px', display: 'block' }}>
-                  Format: Row Letter + Number (e.g. F-14, A-08, VIP-02)
-                </span>
+
+                <button type="submit" className="netflix-btn-get-started">
+                  <span>Order In-Seat</span>
+                  <ChevronRight size={20} strokeWidth={2.5} />
+                </button>
               </div>
 
-              <button type="submit" className="netflix-btn-get-started">
-                <span>Order In-Seat</span>
-                <ChevronRight size={22} strokeWidth={2.5} />
-              </button>
+              <span className="netflix-input-hint">
+                Format: Row Letter + Number (e.g. F-14, A-08, VIP-02)
+              </span>
             </div>
           </form>
         </main>
