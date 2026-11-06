@@ -204,7 +204,7 @@ export default function App() {
     let nextState = false;
     const nextList = current.map((item) => {
       if (item.id === itemId) {
-        nextState = !item.isOutOfStock;
+        nextState = !Boolean(item.isOutOfStock);
         return { ...item, isOutOfStock: nextState };
       }
       return item;
@@ -213,6 +213,7 @@ export default function App() {
       localStorage.setItem('cinebite_menu_items', JSON.stringify(nextList));
     } catch (e) {}
     setMenuItems(nextList);
+    broadcastMenuSync(nextList);
     broadcastMenuStockToggle(itemId, nextState, nextList);
   }, []);
 
@@ -281,14 +282,30 @@ export default function App() {
     }
   }, [activeOrder?.dbOrderId, activeOrder?.orderId, activeOrder?.accessToken, updateActiveOrder]);
 
+  // Automatically remove any out-of-stock items from active cart if kitchen marks them out of stock
+  useEffect(() => {
+    const outOfStockIds = new Set(
+      menuItems.filter((it) => it.isOutOfStock).map((it) => it.id)
+    );
+    if (outOfStockIds.size > 0) {
+      setCart((prevCart) => {
+        const hasOut = prevCart.some((ci) => outOfStockIds.has(ci.menuItemId || ci.id));
+        if (!hasOut) return prevCart;
+        return prevCart.filter((ci) => !outOfStockIds.has(ci.menuItemId || ci.id));
+      });
+    }
+  }, [menuItems]);
+
   // Open Size & Weight Selector Modal (for food categories with weight specification)
   const handleOpenSizeModal = (item) => {
+    if (item?.isOutOfStock) return;
     setSizeModalItem(item);
     setIsSizeModalOpen(true);
   };
 
   // Confirm size from modal
   const handleConfirmSize = (item, selectedSize, quantity = 1) => {
+    if (item?.isOutOfStock) return;
     const cartItemId = `${item.id}-size-${selectedSize.id}`;
     const cartItem = {
       ...item,
@@ -313,6 +330,7 @@ export default function App() {
 
   // Cart operations (Direct add for items without weight options)
   const handleAddToCart = (item) => {
+    if (item?.isOutOfStock) return;
     setCart((prevCart) => {
       const existing = prevCart.find((ci) => ci.id === item.id);
       if (existing) {

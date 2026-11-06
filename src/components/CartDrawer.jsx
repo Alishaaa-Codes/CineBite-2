@@ -88,6 +88,16 @@ export default function CartDrawer({
       };
     }
 
+    // 5. Valid Stock details
+    const outOfStockInCart = cart.find((ci) => ci.isOutOfStock);
+    if (outOfStockInCart) {
+      return {
+        field: 'stock',
+        title: 'Item Sold Out',
+        desc: `"${outOfStockInCart.name}" is currently sold out in the cinema kitchen. Please remove it from your cart to proceed.`
+      };
+    }
+
     return null; // Valid
   };
 

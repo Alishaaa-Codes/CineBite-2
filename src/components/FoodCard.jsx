@@ -19,15 +19,16 @@ export default function FoodCard({
     ? Math.min(...item.weightOptions.map((o) => o.price)) 
     : item.price;
 
+  const isOutOfStock = Boolean(item.isOutOfStock);
+
   const handleAddClick = () => {
+    if (isOutOfStock) return;
     if (hasWeightSpec && onOpenSizeModal) {
       onOpenSizeModal(item);
     } else {
       onAddToCart(item);
     }
   };
-
-  const isOutOfStock = Boolean(item.isOutOfStock);
 
   return (
     <article className={`food-card fade-in ${isOutOfStock ? 'is-out-of-stock' : ''}`}>

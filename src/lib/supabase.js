@@ -1273,24 +1273,34 @@ export function mergeMenuItems(currentList, incomingList) {
 
   const map = new Map();
 
-  // 1. Seed base default items
+  // 1. Seed base default items with explicit isOutOfStock: false
   for (const item of MENU_ITEMS) {
     if (item?.id) {
-      map.set(item.id, { ...item });
+      map.set(item.id, { ...item, isOutOfStock: false });
     }
   }
 
   // 2. Overlay current items (including custom items or local stock status)
   for (const item of current) {
     if (item?.id) {
-      map.set(item.id, { ...(map.get(item.id) || {}), ...item });
+      const prev = map.get(item.id) || {};
+      map.set(item.id, {
+        ...prev,
+        ...item,
+        isOutOfStock: item.isOutOfStock !== undefined ? Boolean(item.isOutOfStock) : Boolean(prev.isOutOfStock)
+      });
     }
   }
 
   // 3. Overlay incoming items (from WebSocket, broadcast channel, or storage event)
   for (const item of incoming) {
     if (item?.id) {
-      map.set(item.id, { ...(map.get(item.id) || {}), ...item });
+      const prev = map.get(item.id) || {};
+      map.set(item.id, {
+        ...prev,
+        ...item,
+        isOutOfStock: item.isOutOfStock !== undefined ? Boolean(item.isOutOfStock) : Boolean(prev.isOutOfStock)
+      });
     }
   }
 
@@ -1310,17 +1320,19 @@ export function mergeMenuItems(currentList, incomingList) {
 export function broadcastMenuStockToggle(itemId, isOutOfStock, updatedMenuItems) {
   if (typeof window === 'undefined') return;
 
+  const nextState = Boolean(isOutOfStock);
   let menuList = updatedMenuItems;
   if (!menuList) {
     try {
       const saved = JSON.parse(localStorage.getItem('cinebite_menu_items') || '[]');
       if (Array.isArray(saved) && saved.length) {
-        menuList = saved.map((it) => (it.id === itemId ? { ...it, isOutOfStock } : it));
+        menuList = saved.map((it) => (it.id === itemId ? { ...it, isOutOfStock: nextState } : it));
       }
     } catch (e) {}
   }
 
   if (menuList && Array.isArray(menuList)) {
+    menuList = menuList.map((it) => (it.id === itemId ? { ...it, isOutOfStock: nextState } : it));
     const merged = mergeMenuItems(menuList, []);
     try {
       localStorage.setItem('cinebite_menu_items', JSON.stringify(merged));
@@ -1334,7 +1346,7 @@ export function broadcastMenuStockToggle(itemId, isOutOfStock, updatedMenuItems)
       'cinebite_stock_sync',
       JSON.stringify({
         itemId,
-        isOutOfStock,
+        isOutOfStock: nextState,
         time: Date.now()
       })
     );
@@ -1343,7 +1355,8 @@ export function broadcastMenuStockToggle(itemId, isOutOfStock, updatedMenuItems)
   const bc = getSharedBroadcastChannel();
   if (bc) {
     try {
-      bc.postMessage({ type: 'stock_toggle', itemId, isOutOfStock, menuItems: menuList });
+      bc.postMessage({ type: 'stock_toggle', itemId, isOutOfStock: nextState, menuItems: menuList });
+      bc.postMessage({ type: 'menu_sync', menuItems: menuList });
     } catch (e) {}
   }
 
@@ -1356,7 +1369,15 @@ export function broadcastMenuStockToggle(itemId, isOutOfStock, updatedMenuItems)
             .send({
               type: 'broadcast',
               event: 'menu_stock_toggle',
-              payload: { itemId, isOutOfStock, menuItems: menuList, time: Date.now() }
+              payload: { itemId, isOutOfStock: nextState, menuItems: menuList, time: Date.now() }
+            })
+            .catch(() => {});
+
+          channel
+            .send({
+              type: 'broadcast',
+              event: 'menu_sync',
+              payload: { menuItems: menuList, sentAt: Date.now() }
             })
             .catch(() => {});
         } catch (e) {}
@@ -1448,19 +1469,15 @@ export function subscribeToMenuUpdates(onMenuUpdate) {
     try {
       const data = e?.data;
       if (data?.type === 'stock_toggle') {
-        if (Array.isArray(data.menuItems) && data.menuItems.length > 0) {
-          const current = JSON.parse(localStorage.getItem('cinebite_menu_items') || '[]');
-          const merged = mergeMenuItems(current, data.menuItems);
-          try { localStorage.setItem('cinebite_menu_items', JSON.stringify(merged)); } catch (err) {}
-          onMenuUpdate(merged);
-        } else if (data.itemId) {
-          const current = JSON.parse(localStorage.getItem('cinebite_menu_items') || '[]');
-          if (Array.isArray(current) && current.length) {
-            const next = current.map((it) => (it.id === data.itemId ? { ...it, isOutOfStock: data.isOutOfStock } : it));
-            try { localStorage.setItem('cinebite_menu_items', JSON.stringify(next)); } catch (err) {}
-            onMenuUpdate(next);
-          }
+        const current = JSON.parse(localStorage.getItem('cinebite_menu_items') || '[]');
+        let nextList = Array.isArray(data.menuItems) && data.menuItems.length > 0
+          ? mergeMenuItems(current, data.menuItems)
+          : (current.length > 0 ? current : MENU_ITEMS);
+        if (data.itemId !== undefined) {
+          nextList = nextList.map((it) => (it.id === data.itemId ? { ...it, isOutOfStock: Boolean(data.isOutOfStock) } : it));
         }
+        try { localStorage.setItem('cinebite_menu_items', JSON.stringify(nextList)); } catch (err) {}
+        onMenuUpdate(nextList);
       } else if (data?.type === 'menu_sync' && Array.isArray(data.menuItems)) {
         const current = JSON.parse(localStorage.getItem('cinebite_menu_items') || '[]');
         const merged = mergeMenuItems(current, data.menuItems);
@@ -1493,7 +1510,7 @@ export function subscribeToMenuUpdates(onMenuUpdate) {
         const sync = JSON.parse(e.newValue);
         const current = JSON.parse(localStorage.getItem('cinebite_menu_items') || '[]');
         if (Array.isArray(current) && sync.itemId) {
-          const next = current.map((it) => (it.id === sync.itemId ? { ...it, isOutOfStock: sync.isOutOfStock } : it));
+          const next = current.map((it) => (it.id === sync.itemId ? { ...it, isOutOfStock: Boolean(sync.isOutOfStock) } : it));
           try { localStorage.setItem('cinebite_menu_items', JSON.stringify(next)); } catch (err) {}
           onMenuUpdate(next);
         }
@@ -1510,18 +1527,19 @@ export function subscribeToMenuUpdates(onMenuUpdate) {
       channel.on('broadcast', { event: 'menu_stock_toggle' }, (msg) => {
         try {
           const payload = msg?.payload;
-          if (payload?.menuItems && Array.isArray(payload.menuItems) && payload.menuItems.length > 0) {
-            const current = JSON.parse(localStorage.getItem('cinebite_menu_items') || '[]');
-            const merged = mergeMenuItems(current, payload.menuItems);
-            localStorage.setItem('cinebite_menu_items', JSON.stringify(merged));
-            onMenuUpdate(merged);
-          } else if (payload?.itemId !== undefined) {
-            const current = JSON.parse(localStorage.getItem('cinebite_menu_items') || '[]');
-            const base = current.length > 0 ? current : MENU_ITEMS;
-            const next = base.map((it) => (it.id === payload.itemId ? { ...it, isOutOfStock: payload.isOutOfStock } : it));
-            localStorage.setItem('cinebite_menu_items', JSON.stringify(next));
-            onMenuUpdate(next);
+          if (!payload) return;
+          const current = JSON.parse(localStorage.getItem('cinebite_menu_items') || '[]');
+          let nextList;
+          if (Array.isArray(payload.menuItems) && payload.menuItems.length > 0) {
+            nextList = mergeMenuItems(current, payload.menuItems);
+          } else {
+            nextList = current.length > 0 ? current : MENU_ITEMS;
           }
+          if (payload.itemId !== undefined) {
+            nextList = nextList.map((it) => (it.id === payload.itemId ? { ...it, isOutOfStock: Boolean(payload.isOutOfStock) } : it));
+          }
+          localStorage.setItem('cinebite_menu_items', JSON.stringify(nextList));
+          onMenuUpdate(nextList);
         } catch (e) {}
       });
 
@@ -1558,11 +1576,7 @@ export function subscribeToMenuUpdates(onMenuUpdate) {
       channel.on('broadcast', { event: 'request_menu_sync' }, () => {
         try {
           const current = JSON.parse(localStorage.getItem('cinebite_menu_items') || '[]');
-          const defaultIds = new Set(MENU_ITEMS.map((m) => m.id));
-          const hasCustomItems = current.some((it) => !defaultIds.has(it.id));
-          const hasStockChanges = current.some((it) => it.isOutOfStock);
-
-          if (hasCustomItems || hasStockChanges) {
+          if (Array.isArray(current) && current.length > 0) {
             channel.send({
               type: 'broadcast',
               event: 'menu_sync',
