@@ -52,20 +52,10 @@ let liveKitchenChannel = null;
 export function getKitchenOrdersChannel() {
   if (!supabase) return null;
   if (!liveKitchenChannel) {
-    const clientId = typeof window !== 'undefined'
-      ? (sessionStorage.getItem('cinebite_client_id') || ('cli-' + Math.random().toString(36).substring(2, 9)))
-      : 'server';
-    if (typeof window !== 'undefined') {
-      try { sessionStorage.setItem('cinebite_client_id', clientId); } catch (e) {}
-    }
-
     liveKitchenChannel = supabase.channel('cinebite-live-kitchen', {
       config: {
         broadcast: {
           ack: false
-        },
-        presence: {
-          key: clientId
         }
       }
     });
@@ -1218,6 +1208,18 @@ export function subscribeToKitchenOrders({ onInsert, onUpdate, isDemo = false })
               }
             }
           } catch (e) {}
+        })
+        .on('broadcast', { event: 'request_menu_sync' }, () => {
+          try {
+            const current = JSON.parse(localStorage.getItem('cinebite_menu_items') || '[]');
+            if (Array.isArray(current) && current.length > 0) {
+              sbChannel.send({
+                type: 'broadcast',
+                event: 'menu_sync',
+                payload: { menuItems: current, answeredBy: 'kitchen', time: Date.now() }
+              }).catch(() => {});
+            }
+          } catch (e) {}
         });
 
       if (sbChannel.state === 'joined') {
@@ -1349,30 +1351,21 @@ export function broadcastMenuStockToggle(itemId, isOutOfStock, updatedMenuItems)
     const channel = getKitchenOrdersChannel();
     if (channel) {
       const doSend = () => {
-        return channel
-          .send({
-            type: 'broadcast',
-            event: 'menu_stock_toggle',
-            payload: { itemId, isOutOfStock, menuItems: menuList }
-          })
-          .catch(() => {});
+        try {
+          channel
+            .send({
+              type: 'broadcast',
+              event: 'menu_stock_toggle',
+              payload: { itemId, isOutOfStock, menuItems: menuList, time: Date.now() }
+            })
+            .catch(() => {});
+        } catch (e) {}
       };
 
-      if (channel.state === 'joined') {
-        doSend();
-        setTimeout(doSend, 200);
-        setTimeout(doSend, 600);
-      } else {
-        channel.subscribe((status) => {
-          if (status === 'SUBSCRIBED') {
-            doSend();
-            setTimeout(doSend, 200);
-            setTimeout(doSend, 600);
-          }
-        });
-        setTimeout(doSend, 350);
-        setTimeout(doSend, 800);
-      }
+      doSend();
+      setTimeout(doSend, 150);
+      setTimeout(doSend, 400);
+      setTimeout(doSend, 1000);
     }
   } catch (e) {}
 }
@@ -1401,42 +1394,33 @@ export function broadcastMenuSync(updatedMenuItems, singleItem = null) {
   try {
     const channel = getKitchenOrdersChannel();
     if (channel) {
-      // Also update Phoenix Presence so newly joining devices get it automatically
-      try {
-        if (channel.state === 'joined') {
-          channel.track({ menuItems: merged, updatedAt: Date.now() }).catch(() => {});
-        }
-      } catch (e) {}
-
       const doSend = () => {
         try {
-          if (channel.state === 'joined') {
+          channel
+            .send({
+              type: 'broadcast',
+              event: 'menu_sync',
+              payload: { menuItems: merged, item: singleItem, sentAt: Date.now() }
+            })
+            .catch(() => {});
+
+          if (singleItem && singleItem.id) {
             channel
               .send({
                 type: 'broadcast',
-                event: 'menu_sync',
-                payload: { menuItems: merged, item: singleItem, sentAt: Date.now() }
+                event: 'menu_item_add',
+                payload: { item: singleItem, sentAt: Date.now() }
               })
               .catch(() => {});
-
-            if (singleItem && singleItem.id) {
-              channel
-                .send({
-                  type: 'broadcast',
-                  event: 'menu_item_add',
-                  payload: { item: singleItem, sentAt: Date.now() }
-                })
-                .catch(() => {});
-            }
           }
         } catch (err) {}
       };
 
       // Multi-burst transmission to guarantee delivery across mobile network latencies
       doSend();
-      setTimeout(doSend, 200);
-      setTimeout(doSend, 600);
-      setTimeout(doSend, 1400);
+      setTimeout(doSend, 150);
+      setTimeout(doSend, 400);
+      setTimeout(doSend, 1000);
     }
   } catch (e) {}
 }
@@ -1464,7 +1448,7 @@ export function subscribeToMenuUpdates(onMenuUpdate) {
     try {
       const data = e?.data;
       if (data?.type === 'stock_toggle') {
-        if (Array.isArray(data.menuItems)) {
+        if (Array.isArray(data.menuItems) && data.menuItems.length > 0) {
           const current = JSON.parse(localStorage.getItem('cinebite_menu_items') || '[]');
           const merged = mergeMenuItems(current, data.menuItems);
           try { localStorage.setItem('cinebite_menu_items', JSON.stringify(merged)); } catch (err) {}
@@ -1518,7 +1502,7 @@ export function subscribeToMenuUpdates(onMenuUpdate) {
   };
   window.addEventListener('storage', handleStorage);
 
-  // 4. Supabase Realtime Broadcast & Presence listener (Cross-Device WebSocket)
+  // 4. Supabase Realtime Broadcast listener (Cross-Device WebSocket)
   let timers = [];
   const channel = getKitchenOrdersChannel();
   if (channel) {
@@ -1526,18 +1510,17 @@ export function subscribeToMenuUpdates(onMenuUpdate) {
       channel.on('broadcast', { event: 'menu_stock_toggle' }, (msg) => {
         try {
           const payload = msg?.payload;
-          if (payload?.menuItems && Array.isArray(payload.menuItems)) {
+          if (payload?.menuItems && Array.isArray(payload.menuItems) && payload.menuItems.length > 0) {
             const current = JSON.parse(localStorage.getItem('cinebite_menu_items') || '[]');
             const merged = mergeMenuItems(current, payload.menuItems);
             localStorage.setItem('cinebite_menu_items', JSON.stringify(merged));
             onMenuUpdate(merged);
           } else if (payload?.itemId !== undefined) {
             const current = JSON.parse(localStorage.getItem('cinebite_menu_items') || '[]');
-            if (Array.isArray(current) && current.length) {
-              const next = current.map((it) => (it.id === payload.itemId ? { ...it, isOutOfStock: payload.isOutOfStock } : it));
-              localStorage.setItem('cinebite_menu_items', JSON.stringify(next));
-              onMenuUpdate(next);
-            }
+            const base = current.length > 0 ? current : MENU_ITEMS;
+            const next = base.map((it) => (it.id === payload.itemId ? { ...it, isOutOfStock: payload.isOutOfStock } : it));
+            localStorage.setItem('cinebite_menu_items', JSON.stringify(next));
+            onMenuUpdate(next);
           }
         } catch (e) {}
       });
@@ -1545,7 +1528,7 @@ export function subscribeToMenuUpdates(onMenuUpdate) {
       channel.on('broadcast', { event: 'menu_sync' }, (msg) => {
         try {
           const payload = msg?.payload;
-          if (payload?.menuItems && Array.isArray(payload.menuItems)) {
+          if (payload?.menuItems && Array.isArray(payload.menuItems) && payload.menuItems.length > 0) {
             const current = JSON.parse(localStorage.getItem('cinebite_menu_items') || '[]');
             const merged = mergeMenuItems(current, payload.menuItems);
             localStorage.setItem('cinebite_menu_items', JSON.stringify(merged));
@@ -1571,26 +1554,6 @@ export function subscribeToMenuUpdates(onMenuUpdate) {
         } catch (e) {}
       });
 
-      // Presence state sync (server automatically pushes state from any active kitchen/staff tab)
-      channel.on('presence', { event: 'sync' }, () => {
-        try {
-          const state = channel.presenceState();
-          for (const key of Object.keys(state)) {
-            const presences = state[key];
-            if (Array.isArray(presences)) {
-              for (const p of presences) {
-                if (Array.isArray(p.menuItems) && p.menuItems.length > 0) {
-                  const current = JSON.parse(localStorage.getItem('cinebite_menu_items') || '[]');
-                  const merged = mergeMenuItems(current, p.menuItems);
-                  localStorage.setItem('cinebite_menu_items', JSON.stringify(merged));
-                  onMenuUpdate(merged);
-                }
-              }
-            }
-          }
-        } catch (e) {}
-      });
-
       // Answer sync requests from newly connected or refreshed devices
       channel.on('broadcast', { event: 'request_menu_sync' }, () => {
         try {
@@ -1612,21 +1575,19 @@ export function subscribeToMenuUpdates(onMenuUpdate) {
       // Active handshake: repeatedly poll for menu sync on connection until received
       const sendSyncRequest = () => {
         try {
-          if (channel && channel.state === 'joined') {
-            channel.send({
-              type: 'broadcast',
-              event: 'request_menu_sync',
-              payload: { time: Date.now() }
-            }).catch(() => {});
-          }
+          channel.send({
+            type: 'broadcast',
+            event: 'request_menu_sync',
+            payload: { time: Date.now() }
+          }).catch(() => {});
         } catch (e) {}
       };
 
       sendSyncRequest();
-      timers.push(setTimeout(sendSyncRequest, 300));
-      timers.push(setTimeout(sendSyncRequest, 800));
-      timers.push(setTimeout(sendSyncRequest, 1600));
-      timers.push(setTimeout(sendSyncRequest, 3000));
+      timers.push(setTimeout(sendSyncRequest, 250));
+      timers.push(setTimeout(sendSyncRequest, 600));
+      timers.push(setTimeout(sendSyncRequest, 1200));
+      timers.push(setTimeout(sendSyncRequest, 2500));
     } catch (e) {
       console.warn('Realtime menu subscription warning:', e);
     }
