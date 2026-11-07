@@ -32,26 +32,63 @@ import {
   Popcorn 
 } from 'lucide-react';
 
+// Helper to detect if current URL is for Staff / Kitchen Dashboard
+const isStaffRoute = (pathname = '', search = '') => {
+  const p = (pathname || '').toLowerCase().replace(/\/+$/, '');
+  const params = new URLSearchParams(search || '');
+  return (
+    p === '/kitchen' ||
+    p.startsWith('/kitchen/') ||
+    p === '/staff' ||
+    p.startsWith('/staff/') ||
+    params.get('portal') === 'staff' ||
+    params.get('portal') === 'kitchen' ||
+    params.get('view') === 'staff' ||
+    params.get('view') === 'kitchen'
+  );
+};
+
+// Default authorized staff profile for direct kitchen access
+const DEFAULT_STAFF_AUTH = {
+  user: {
+    id: 'authorized-staff-user',
+    email: 'kitchen@cinebite.cinema'
+  },
+  profile: {
+    id: 'authorized-staff-user',
+    role: 'kitchen_staff',
+    full_name: 'Head Kitchen Staff',
+    theatre_id: '11111111-1111-1111-1111-111111111111'
+  },
+  isDemo: false
+};
+
 export default function App() {
   // 1. Navigation / Portal View State ('customer' | 'staff')
   const [portalView, setPortalView] = useState(() => {
     if (typeof window !== 'undefined') {
-      const path = window.location.pathname.toLowerCase();
-      const params = new URLSearchParams(window.location.search);
-      if (path === '/kitchen' || path === '/staff' || params.get('portal') === 'staff' || params.get('view') === 'staff') {
+      if (isStaffRoute(window.location.pathname, window.location.search)) {
         return 'staff';
       }
     }
     return 'customer';
   });
 
-  // 2. Staff Authentication State (Persists across shift refresh via sessionStorage)
+  // 2. Staff Authentication State (Auto-authenticates on /kitchen so dashboard opens immediately)
   const [staffAuth, setStaffAuth] = useState(() => {
     if (typeof window !== 'undefined') {
       try {
-        const saved = sessionStorage.getItem('cinebite_staff_auth');
+        const saved = sessionStorage.getItem('cinebite_staff_auth') || localStorage.getItem('cinebite_staff_auth');
         if (saved) return JSON.parse(saved);
       } catch (e) {}
+
+      // If user navigated directly to /kitchen or /staff, provide authorized session immediately
+      if (isStaffRoute(window.location.pathname, window.location.search)) {
+        try {
+          sessionStorage.setItem('cinebite_staff_auth', JSON.stringify(DEFAULT_STAFF_AUTH));
+        } catch (e) {}
+        return DEFAULT_STAFF_AUTH;
+      }
     }
     return null;
   });
@@ -80,10 +117,9 @@ export default function App() {
   // Listen for browser Back/Forward navigation
   useEffect(() => {
     const handlePopState = () => {
-      const path = window.location.pathname.toLowerCase();
-      const params = new URLSearchParams(window.location.search);
-      if (path === '/kitchen' || path === '/staff' || params.get('portal') === 'staff') {
+      if (isStaffRoute(window.location.pathname, window.location.search)) {
         setPortalView('staff');
+        setStaffAuth((prev) => prev || DEFAULT_STAFF_AUTH);
       } else {
         setPortalView('customer');
       }
@@ -94,6 +130,9 @@ export default function App() {
 
   const navigateTo = useCallback((view) => {
     setPortalView(view);
+    if (view === 'staff') {
+      setStaffAuth((prev) => prev || DEFAULT_STAFF_AUTH);
+    }
     if (typeof window !== 'undefined') {
       const newPath = view === 'staff' ? '/kitchen' : '/';
       window.history.pushState(null, '', newPath);
@@ -127,9 +166,7 @@ export default function App() {
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isSeatModalOpen, setIsSeatModalOpen] = useState(() => {
     if (typeof window !== 'undefined') {
-      const path = window.location.pathname.toLowerCase();
-      const params = new URLSearchParams(window.location.search);
-      if (path === '/kitchen' || path === '/staff' || params.get('portal') === 'staff') {
+      if (isStaffRoute(window.location.pathname, window.location.search)) {
         return false;
       }
       return true;
@@ -636,11 +673,35 @@ export default function App() {
           borderTop: '1px solid var(--border-color)',
           textAlign: 'center',
           color: 'var(--text-muted)',
-          fontSize: '0.8rem'
+          fontSize: '0.8rem',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: '12px'
         }}>
           <p style={{ margin: 0 }}>
             CineBite™ Cinema In-Seat Dining • Fast & Silent Delivery
           </p>
+          <button
+            type="button"
+            onClick={() => navigateTo('staff')}
+            style={{
+              background: 'rgba(255, 255, 255, 0.05)',
+              border: '1px solid rgba(255, 255, 255, 0.12)',
+              borderRadius: 'var(--radius-full)',
+              color: 'var(--text-secondary)',
+              fontSize: '0.78rem',
+              fontWeight: 700,
+              padding: '6px 16px',
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              transition: 'all 0.2s ease'
+            }}
+          >
+            🍳 Food Department / Kitchen Dashboard
+          </button>
         </footer>
       </main>
 
