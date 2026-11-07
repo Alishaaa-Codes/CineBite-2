@@ -204,7 +204,7 @@ export default function OrderSuccessModal({
                 </button>
                 <div className="ticket-status-pill">
                   <span className="ticket-pulse-dot" />
-                  <span>STATUS: {order.status.toUpperCase()}</span>
+                  <span>STATUS: {(order.status || 'RECEIVED').toUpperCase()}</span>
                 </div>
               </div>
 

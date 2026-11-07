@@ -325,18 +325,20 @@ export default function KitchenDashboard({
 
   // Filtered Orders
   const filteredOrders = useMemo(() => {
-    return orders.filter((order) => {
+    const q = (searchQuery || '').toLowerCase().trim();
+    return (orders || []).filter((order) => {
+      if (!order) return false;
       const matchesTab = activeTab === 'all' || order.status === activeTab;
       const matchesScreen = selectedScreen === 'all' || order.screen_name === selectedScreen;
 
-      const q = searchQuery.toLowerCase().trim();
       const matchesSearch =
         !q ||
-        order.order_number?.toLowerCase().includes(q) ||
-        order.seat_code?.toLowerCase().includes(q) ||
-        order.screen_name?.toLowerCase().includes(q) ||
-        order.customer_name?.toLowerCase().includes(q) ||
-        order.order_items?.some((i) => i.item_name?.toLowerCase().includes(q));
+        (order.order_number || '')?.toLowerCase().includes(q) ||
+        (order.seat_code || '')?.toLowerCase().includes(q) ||
+        (order.screen_name || '')?.toLowerCase().includes(q) ||
+        (order.customer_name || '')?.toLowerCase().includes(q) ||
+        order.order_items?.some((i) => (i?.item_name || i?.name || '')?.toLowerCase().includes(q)) ||
+        order.cart?.some((i) => (i?.name || i?.item_name || '')?.toLowerCase().includes(q));
 
       return matchesTab && matchesScreen && matchesSearch;
     });

@@ -28,13 +28,14 @@ export default function ManageStockModal({
 
   // Filtered items
   const filtered = useMemo(() => {
-    return menuItems.filter((item) => {
+    const q = (search || '').toLowerCase().trim();
+    return (menuItems || []).filter((item) => {
+      if (!item) return false;
       const matchCat = selectedCategory === 'all' || item.categoryId === selectedCategory;
-      const q = search.toLowerCase().trim();
       const matchSearch = !q || 
-        item.name.toLowerCase().includes(q) || 
-        item.description?.toLowerCase().includes(q) ||
-        item.categoryId?.toLowerCase().includes(q);
+        (item.name || '').toLowerCase().includes(q) || 
+        (item.description || '').toLowerCase().includes(q) ||
+        (item.categoryId || '').toLowerCase().includes(q);
       return matchCat && matchSearch;
     });
   }, [menuItems, selectedCategory, search]);

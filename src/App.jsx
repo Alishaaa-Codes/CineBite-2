@@ -455,12 +455,15 @@ export default function App() {
 
   // Filtered Menu Items
   const filteredItems = useMemo(() => {
-    return menuItems.filter((item) => {
+    const q = (searchQuery || '').toLowerCase().trim();
+    return (menuItems || []).filter((item) => {
+      if (!item) return false;
       const matchesCategory =
         selectedCategory === 'all' || item.categoryId === selectedCategory;
       const matchesSearch =
-        item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.description.toLowerCase().includes(searchQuery.toLowerCase());
+        !q ||
+        (item.name || '').toLowerCase().includes(q) ||
+        (item.description || '').toLowerCase().includes(q);
       const matchesVeg = !vegOnly || item.isVeg === true;
 
       return matchesCategory && matchesSearch && matchesVeg;
