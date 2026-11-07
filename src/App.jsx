@@ -24,7 +24,11 @@ import {
   broadcastMenuStockToggle,
   broadcastMenuSync,
   subscribeToMenuUpdates,
-  mergeMenuItems
+  mergeMenuItems,
+  getStoredOutOfStockIds,
+  saveStoredOutOfStockIds,
+  applyOutOfStockToItems,
+  trackKitchenStockPresence
 } from './lib/supabase';
 import './styles/staff.css';
 import { 
@@ -181,13 +185,16 @@ export default function App() {
   const [menuItems, setMenuItems] = useState(() => {
     if (typeof window !== 'undefined') {
       try {
+        const storedOutIds = getStoredOutOfStockIds();
         const saved = localStorage.getItem('cinebite_menu_items');
         if (saved) {
           const parsed = JSON.parse(saved);
           if (Array.isArray(parsed) && parsed.length > 0) {
-            return mergeMenuItems([], parsed);
+            const merged = mergeMenuItems([], parsed);
+            return applyOutOfStockToItems(merged, storedOutIds);
           }
         }
+        return applyOutOfStockToItems(MENU_ITEMS, storedOutIds);
       } catch (e) {}
     }
     return MENU_ITEMS;
@@ -214,37 +221,41 @@ export default function App() {
       current = MENU_ITEMS;
     }
     const nextList = mergeMenuItems(current, [newItem]);
+    const storedOut = getStoredOutOfStockIds();
+    const finalItems = applyOutOfStockToItems(nextList, storedOut);
     try {
-      localStorage.setItem('cinebite_menu_items', JSON.stringify(nextList));
+      localStorage.setItem('cinebite_menu_items', JSON.stringify(finalItems));
     } catch (e) {}
-    setMenuItems(nextList);
-    broadcastMenuSync(nextList, newItem);
+    setMenuItems(finalItems);
+    broadcastMenuSync(finalItems, newItem);
   }, []);
 
   // Toggle item in/out of stock from Kitchen Dashboard
   const handleToggleStock = useCallback((itemId) => {
-    let current = [];
-    try {
-      const saved = localStorage.getItem('cinebite_menu_items');
-      if (saved) current = JSON.parse(saved);
-    } catch (e) {}
-    if (!Array.isArray(current) || current.length === 0) {
-      current = MENU_ITEMS;
+    const idStr = String(itemId);
+    const currentOut = new Set(getStoredOutOfStockIds());
+    const isCurrentlyOut = currentOut.has(idStr);
+    const nextState = !isCurrentlyOut;
+
+    if (nextState) {
+      currentOut.add(idStr);
+    } else {
+      currentOut.delete(idStr);
     }
-    let nextState = false;
-    const nextList = current.map((item) => {
-      if (item.id === itemId) {
-        nextState = !Boolean(item.isOutOfStock);
-        return { ...item, isOutOfStock: nextState };
-      }
-      return item;
+    const updatedOutArray = Array.from(currentOut);
+    saveStoredOutOfStockIds(updatedOutArray);
+
+    setMenuItems((prev) => {
+      const base = Array.isArray(prev) && prev.length > 0 ? prev : MENU_ITEMS;
+      const nextList = base.map((item) =>
+        String(item.id) === idStr ? { ...item, isOutOfStock: nextState } : item
+      );
+      try {
+        localStorage.setItem('cinebite_menu_items', JSON.stringify(nextList));
+      } catch (e) {}
+      broadcastMenuStockToggle(idStr, nextState, nextList, updatedOutArray);
+      return nextList;
     });
-    try {
-      localStorage.setItem('cinebite_menu_items', JSON.stringify(nextList));
-    } catch (e) {}
-    setMenuItems(nextList);
-    broadcastMenuSync(nextList);
-    broadcastMenuStockToggle(itemId, nextState, nextList);
   }, []);
 
   // 6. Category & Filter States

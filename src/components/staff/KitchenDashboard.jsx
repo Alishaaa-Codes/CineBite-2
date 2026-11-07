@@ -29,7 +29,8 @@ import {
   updateOrderStatus, 
   subscribeToKitchenOrders, 
   signOutStaff,
-  localOrders 
+  localOrders,
+  trackKitchenStockPresence 
 } from '../../lib/supabase';
 import { kitchenAudio } from '../../lib/audioAlert';
 import OrderDetailModal from './OrderDetailModal';
@@ -103,6 +104,7 @@ export default function KitchenDashboard({
   useEffect(() => {
     // 1. Initial load
     loadOrders(true);
+    trackKitchenStockPresence();
 
     // 2. High-frequency 1-second auto-poll (silent, smooth, immediate)
     const poller = setInterval(() => {
