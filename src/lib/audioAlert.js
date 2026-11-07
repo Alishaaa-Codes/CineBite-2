@@ -7,29 +7,39 @@ class KitchenAudioAlert {
     this.audioCtx = null;
     this.isMuted = false;
 
-    // Load saved preference
+    // Load saved preference safely
     if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('cinebite_kitchen_muted');
-      this.isMuted = saved === 'true';
+      try {
+        const saved = localStorage.getItem('cinebite_kitchen_muted');
+        this.isMuted = saved === 'true';
+      } catch (e) {
+        this.isMuted = false;
+      }
     }
   }
 
   initContext() {
     if (!this.audioCtx && typeof window !== 'undefined') {
-      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-      if (AudioContextClass) {
-        this.audioCtx = new AudioContextClass();
-      }
+      try {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (AudioContextClass) {
+          this.audioCtx = new AudioContextClass();
+        }
+      } catch (e) {}
     }
     if (this.audioCtx && this.audioCtx.state === 'suspended') {
-      this.audioCtx.resume();
+      try {
+        this.audioCtx.resume();
+      } catch (e) {}
     }
   }
 
   toggleMute() {
     this.isMuted = !this.isMuted;
     if (typeof window !== 'undefined') {
-      localStorage.setItem('cinebite_kitchen_muted', String(this.isMuted));
+      try {
+        localStorage.setItem('cinebite_kitchen_muted', String(this.isMuted));
+      } catch (e) {}
     }
     return this.isMuted;
   }
@@ -37,7 +47,9 @@ class KitchenAudioAlert {
   setMuted(muted) {
     this.isMuted = Boolean(muted);
     if (typeof window !== 'undefined') {
-      localStorage.setItem('cinebite_kitchen_muted', String(this.isMuted));
+      try {
+        localStorage.setItem('cinebite_kitchen_muted', String(this.isMuted));
+      } catch (e) {}
     }
   }
 

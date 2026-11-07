@@ -20,6 +20,7 @@ import {
   isSupabaseConfigured, 
   subscribeToOrderStatus, 
   getStaffSession,
+  signOutStaff,
   broadcastMenuStockToggle,
   broadcastMenuSync,
   subscribeToMenuUpdates,
@@ -79,7 +80,10 @@ export default function App() {
     if (typeof window !== 'undefined') {
       try {
         const saved = sessionStorage.getItem('cinebite_staff_auth') || localStorage.getItem('cinebite_staff_auth');
-        if (saved) return JSON.parse(saved);
+        if (saved && saved !== 'null' && saved !== 'undefined') {
+          const parsed = JSON.parse(saved);
+          if (parsed && typeof parsed === 'object' && parsed.user) return parsed;
+        }
       } catch (e) {}
 
       // If user navigated directly to /kitchen or /staff, provide authorized session immediately
@@ -469,20 +473,13 @@ export default function App() {
   // RENDER: STAFF PORTAL VIEW (/kitchen or /staff)
   // ---------------------------------------------------------------------------
   if (portalView === 'staff') {
-    if (!staffAuth) {
-      return (
-        <StaffLogin 
-          onLoginSuccess={handleStaffLoginSuccess}
-          onSwitchToCustomer={() => navigateTo('customer')}
-        />
-      );
-    }
+    const activeStaffAuth = staffAuth || DEFAULT_STAFF_AUTH;
 
     return (
       <KitchenDashboard 
-        staffUser={staffAuth.user}
-        staffProfile={staffAuth.profile}
-        isDemoMode={staffAuth.isDemo}
+        staffUser={activeStaffAuth.user}
+        staffProfile={activeStaffAuth.profile}
+        isDemoMode={Boolean(activeStaffAuth.isDemo)}
         onLogout={handleStaffLogout}
         onSwitchToCustomer={() => navigateTo('customer')}
         menuItems={menuItems}
@@ -497,12 +494,13 @@ export default function App() {
   // ---------------------------------------------------------------------------
   return (
     <div className="cinebite-app">
-      {/* 1. Header with cinema branding and seat pill */}
+      {/* 1. Header with cinema branding, kitchen toggle, and seat pill */}
       <Header
         cinemaDetails={cinemaDetails}
         onOpenSeatModal={() => setIsSeatModalOpen(true)}
         onOpenCart={() => setIsCartOpen(true)}
         totalCartItems={totalCartCount}
+        onOpenKitchen={() => navigateTo('staff')}
       />
 
       {/* Main Container */}
@@ -532,7 +530,7 @@ export default function App() {
               <span className="seat-live-dot" />
               <div>
                 <div style={{ fontSize: '0.84rem', fontWeight: 800, color: '#FFFFFF' }}>
-                  Order {activeOrder.orderId} • Seat {activeOrder.cinemaDetails?.seatNumber || cinemaDetails.seatNumber}
+                  Order {activeOrder.orderId || activeOrder.order_number || 'Live'} • Seat {activeOrder.cinemaDetails?.seatNumber || cinemaDetails?.seatNumber || ''}
                 </div>
                 <div style={{ fontSize: '0.72rem', color: 'var(--text-orange)', fontWeight: 700, marginTop: '2px' }}>
                   {activeOrder.status === 'delivered'
@@ -574,8 +572,8 @@ export default function App() {
             Enjoy The Movie. We'll Bring The Food.
           </h2>
           <p className="banner-subtitle">
-            Order directly from your seat in <strong>{cinemaDetails.screenName.split('(')[0].trim()}</strong>,{' '}
-            Seat <strong style={{ color: 'var(--gold-primary)' }}>{cinemaDetails.seatNumber}</strong>. 
+            Order directly from your seat in <strong>{(cinemaDetails?.screenName || 'Screen').split('(')[0].trim()}</strong>,{' '}
+            Seat <strong style={{ color: 'var(--gold-primary)' }}>{cinemaDetails?.seatNumber || 'Selection'}</strong>. 
             Delivered hot & quiet to your armrest without missing a single scene.
           </p>
         </section>

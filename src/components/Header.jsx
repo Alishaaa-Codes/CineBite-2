@@ -5,7 +5,8 @@ export default function Header({
   cinemaDetails, 
   onOpenSeatModal, 
   onOpenCart, 
-  totalCartItems 
+  totalCartItems,
+  onOpenKitchen
 }) {
   const screenLabel = cinemaDetails?.screenName 
     ? cinemaDetails.screenName.split('(')[0].trim() 
@@ -34,8 +35,34 @@ export default function Header({
           </div>
         </div>
 
-        {/* Primary Cart Action Button (Directly Accessible on Mobile & Desktop) */}
+        {/* Action Buttons: Kitchen Portal & Shopping Cart */}
         <div className="header-actions">
+          {onOpenKitchen && (
+            <button 
+              type="button"
+              className="header-kitchen-btn"
+              onClick={onOpenKitchen}
+              title="Open Live Kitchen Dashboard (Food Department)"
+              style={{
+                background: 'rgba(255, 159, 28, 0.12)',
+                border: '1px solid rgba(255, 159, 28, 0.4)',
+                color: 'var(--text-orange)',
+                padding: '6px 12px',
+                borderRadius: 'var(--radius-full)',
+                fontSize: '0.78rem',
+                fontWeight: 700,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease'
+              }}
+            >
+              <span>🍳</span>
+              <span>Kitchen</span>
+            </button>
+          )}
+
           <button 
             type="button"
             className="header-cart-btn" 

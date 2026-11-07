@@ -775,15 +775,21 @@ export default function KitchenDashboard({
         ) : (
           <div className="orders-grid">
             {filteredOrders.map((order) => {
-              const diffMs = currentTime - new Date(order.created_at);
+              const diffMs = currentTime - new Date(order.created_at || Date.now());
               const isUrgent = diffMs > 10 * 60 * 1000 && order.status !== 'delivered';
+              const orderId = order.id || order.order_number || Math.random().toString();
+              const itemsList = Array.isArray(order.order_items) && order.order_items.length > 0 
+                ? order.order_items 
+                : Array.isArray(order.cart) 
+                ? order.cart 
+                : [];
 
               return (
-                <div key={order.id} className={`order-card status-${order.status}`}>
+                <div key={orderId} className={`order-card status-${order.status || 'received'}`}>
                   {/* Card Header */}
                   <div className="order-card-header">
                     <div className="order-num-group">
-                      <span className="order-num-badge">{order.order_number}</span>
+                      <span className="order-num-badge">{order.order_number || 'CB-ORDER'}</span>
                       <span className={`order-time-elapsed ${isUrgent ? 'urgent' : ''}`}>
                         <Clock size={12} />
                         <span>{getElapsedTimeText(order.created_at)}</span>
@@ -796,7 +802,7 @@ export default function KitchenDashboard({
                         {order.screen_name ? order.screen_name.split('(')[0].trim() : 'Screen'}
                       </div>
                       <div style={{ fontSize: '1.1rem', color: 'var(--gold-primary)' }}>
-                        SEAT {order.seat_code}
+                        SEAT {order.seat_code || 'N/A'}
                       </div>
                     </div>
                   </div>
@@ -823,15 +829,18 @@ export default function KitchenDashboard({
 
                   {/* Checklist of Items */}
                   <ul className="order-items-checklist">
-                    {order.order_items?.map((item, idx) => {
-                      const itemKey = `${order.id}-${idx}`;
+                    {itemsList.map((item, idx) => {
+                      const itemKey = `${orderId}-${idx}`;
                       const isChecked = Boolean(checkedItems[itemKey]);
+                      const itemName = item.item_name || item.name || 'Snack Item';
+                      const itemQty = Number(item.quantity || 1);
+                      const itemPrice = Number(item.total_price ?? ((item.unit_price || item.price || 0) * itemQty)) || 0;
 
                       return (
                         <li 
                           key={item.id || idx} 
                           className="order-item-row"
-                          onClick={() => handleToggleItemCheck(order.id, idx)}
+                          onClick={() => handleToggleItemCheck(orderId, idx)}
                           style={{ cursor: 'pointer', opacity: isChecked ? 0.5 : 1 }}
                         >
                           <div className="item-name-qty">
@@ -848,16 +857,16 @@ export default function KitchenDashboard({
                             }}>
                               {isChecked && <Check size={11} color="#000" strokeWidth={3} />}
                             </div>
-                            <span className="item-qty-tag">{item.quantity}x</span>
+                            <span className="item-qty-tag">{itemQty}x</span>
                             <span style={{ 
                               color: isChecked ? 'var(--text-muted)' : 'var(--text-primary)',
                               textDecoration: isChecked ? 'line-through' : 'none'
                             }}>
-                              {item.item_name}
+                              {itemName}
                             </span>
                           </div>
                           <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                            ₹{Number(item.total_price).toFixed(2)}
+                            ₹{itemPrice.toFixed(2)}
                           </span>
                         </li>
                       );
@@ -868,7 +877,7 @@ export default function KitchenDashboard({
                   <div className="order-card-footer">
                     <div className="order-total-row">
                       <span className="order-total-label">Total Incl. 5% GST</span>
-                      <span className="order-total-amount">₹{Number(order.total_amount).toFixed(2)}</span>
+                      <span className="order-total-amount">₹{(Number(order.total_amount) || 0).toFixed(2)}</span>
                     </div>
 
                     <div className="order-actions-group">
