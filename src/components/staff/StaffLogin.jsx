@@ -178,40 +178,6 @@ ON CONFLICT (id) DO UPDATE SET role = EXCLUDED.role;`;
               </>
             )}
           </button>
-
-          <button 
-            type="button" 
-            onClick={() => onLoginSuccess({
-              user: { id: 'authorized-staff-user', email: 'kitchen@cinebite.cinema' },
-              profile: {
-                id: 'authorized-staff-user',
-                role: 'kitchen_staff',
-                full_name: 'Head Kitchen Staff',
-                theatre_id: '11111111-1111-1111-1111-111111111111'
-              },
-              isDemo: false
-            })}
-            style={{
-              width: '100%',
-              marginTop: '0.75rem',
-              background: 'linear-gradient(135deg, rgba(255, 159, 28, 0.18), rgba(255, 183, 3, 0.12))',
-              border: '1px solid rgba(255, 159, 28, 0.45)',
-              borderRadius: 'var(--radius-md)',
-              color: 'var(--text-orange)',
-              fontWeight: 700,
-              fontSize: '0.86rem',
-              padding: '0.75rem 1rem',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '8px',
-              transition: 'all 0.2s ease'
-            }}
-          >
-            <Sparkles size={16} />
-            <span>⚡ Instant Kitchen Access (1-Click)</span>
-          </button>
         </form>
 
         {/* Error Feedback */}

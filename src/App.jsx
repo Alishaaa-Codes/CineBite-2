@@ -75,7 +75,7 @@ export default function App() {
     return 'customer';
   });
 
-  // 2. Staff Authentication State (Auto-authenticates on /kitchen so dashboard opens immediately)
+  // 2. Staff Authentication State (Requires staff password authentication)
   const [staffAuth, setStaffAuth] = useState(() => {
     if (typeof window !== 'undefined') {
       try {
@@ -85,14 +85,6 @@ export default function App() {
           if (parsed && typeof parsed === 'object' && parsed.user) return parsed;
         }
       } catch (e) {}
-
-      // If user navigated directly to /kitchen or /staff, provide authorized session immediately
-      if (isStaffRoute(window.location.pathname, window.location.search)) {
-        try {
-          sessionStorage.setItem('cinebite_staff_auth', JSON.stringify(DEFAULT_STAFF_AUTH));
-        } catch (e) {}
-        return DEFAULT_STAFF_AUTH;
-      }
     }
     return null;
   });
@@ -111,6 +103,7 @@ export default function App() {
     if (typeof window !== 'undefined') {
       try {
         sessionStorage.removeItem('cinebite_staff_auth');
+        localStorage.removeItem('cinebite_staff_auth');
       } catch (e) {}
     }
     try {
@@ -123,7 +116,6 @@ export default function App() {
     const handlePopState = () => {
       if (isStaffRoute(window.location.pathname, window.location.search)) {
         setPortalView('staff');
-        setStaffAuth((prev) => prev || DEFAULT_STAFF_AUTH);
       } else {
         setPortalView('customer');
       }
@@ -134,9 +126,6 @@ export default function App() {
 
   const navigateTo = useCallback((view) => {
     setPortalView(view);
-    if (view === 'staff') {
-      setStaffAuth((prev) => prev || DEFAULT_STAFF_AUTH);
-    }
     if (typeof window !== 'undefined') {
       const newPath = view === 'staff' ? '/kitchen' : '/';
       window.history.pushState(null, '', newPath);
@@ -476,13 +465,20 @@ export default function App() {
   // RENDER: STAFF PORTAL VIEW (/kitchen or /staff)
   // ---------------------------------------------------------------------------
   if (portalView === 'staff') {
-    const activeStaffAuth = staffAuth || DEFAULT_STAFF_AUTH;
+    if (!staffAuth || !staffAuth.user) {
+      return (
+        <StaffLogin 
+          onLoginSuccess={handleStaffLoginSuccess}
+          onSwitchToCustomer={() => navigateTo('customer')}
+        />
+      );
+    }
 
     return (
       <KitchenDashboard 
-        staffUser={activeStaffAuth.user}
-        staffProfile={activeStaffAuth.profile}
-        isDemoMode={Boolean(activeStaffAuth.isDemo)}
+        staffUser={staffAuth.user}
+        staffProfile={staffAuth.profile}
+        isDemoMode={Boolean(staffAuth.isDemo)}
         onLogout={handleStaffLogout}
         onSwitchToCustomer={() => navigateTo('customer')}
         menuItems={menuItems}
