@@ -234,6 +234,9 @@ export default function KitchenDashboard({
     kitchenAudio.playStatusChangeChime();
     setNewOrderAlert(`✓ "${newItem.name}" published live to cinema menu!`);
     setTimeout(() => setNewOrderAlert(null), 5000);
+    if (typeof onSwitchToCustomer === 'function') {
+      onSwitchToCustomer();
+    }
   };
 
   // Toggle item packing checklist

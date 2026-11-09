@@ -1290,12 +1290,25 @@ export function subscribeToKitchenOrders({ onInsert, onUpdate, isDemo = false })
         })
         .on('broadcast', { event: 'request_menu_sync' }, () => {
           try {
+            const isStaff = typeof window !== 'undefined' && (
+              (typeof sessionStorage !== 'undefined' && Boolean(sessionStorage.getItem('cinebite_staff_auth'))) ||
+              (typeof localStorage !== 'undefined' && Boolean(localStorage.getItem('cinebite_staff_auth')))
+            );
+            if (!isStaff) return;
             const current = JSON.parse(localStorage.getItem('cinebite_menu_items') || '[]');
+            const customItems = JSON.parse(localStorage.getItem('cinebite_custom_items') || '[]');
+            const storedOut = getStoredOutOfStockIds();
             if (Array.isArray(current) && current.length > 0) {
               sbChannel.send({
                 type: 'broadcast',
                 event: 'menu_sync',
-                payload: { menuItems: current, answeredBy: 'kitchen', time: Date.now() }
+                payload: {
+                  menuItems: current,
+                  customItems: Array.isArray(customItems) ? customItems : [],
+                  outOfStockIds: storedOut,
+                  answeredBy: 'kitchen',
+                  time: Date.now()
+                }
               }).catch(() => {});
             }
           } catch (e) {}
@@ -1352,6 +1365,16 @@ export function mergeMenuItems(currentList, incomingList) {
   const incoming = Array.isArray(incomingList) ? incomingList : [];
   const storedOutIds = new Set(getStoredOutOfStockIds());
 
+  // Also read dedicated custom items if in browser
+  let savedCustom = [];
+  if (typeof window !== 'undefined') {
+    try {
+      const raw = localStorage.getItem('cinebite_custom_items');
+      if (raw) savedCustom = JSON.parse(raw);
+    } catch (e) {}
+  }
+  if (!Array.isArray(savedCustom)) savedCustom = [];
+
   const map = new Map();
 
   // 1. Seed base default items with stored stock states
@@ -1362,30 +1385,41 @@ export function mergeMenuItems(currentList, incomingList) {
     }
   }
 
-  // 2. Overlay current items (including custom items or local stock status)
-  for (const item of current) {
+  // 2. Overlay persistent custom items
+  for (const item of savedCustom) {
     if (item?.id) {
       const idStr = String(item.id);
       const prev = map.get(idStr) || {};
-      const isOut = storedOutIds.has(idStr) || (item.isOutOfStock !== undefined ? Boolean(item.isOutOfStock) : Boolean(prev.isOutOfStock));
       map.set(idStr, {
         ...prev,
         ...item,
-        isOutOfStock: isOut
+        isOutOfStock: storedOutIds.has(idStr)
       });
     }
   }
 
-  // 3. Overlay incoming items (from WebSocket, broadcast channel, or storage event)
+  // 3. Overlay current items
+  for (const item of current) {
+    if (item?.id) {
+      const idStr = String(item.id);
+      const prev = map.get(idStr) || {};
+      map.set(idStr, {
+        ...prev,
+        ...item,
+        isOutOfStock: storedOutIds.has(idStr)
+      });
+    }
+  }
+
+  // 4. Overlay incoming items
   for (const item of incoming) {
     if (item?.id) {
       const idStr = String(item.id);
       const prev = map.get(idStr) || {};
-      const isOut = storedOutIds.has(idStr) || (item.isOutOfStock !== undefined ? Boolean(item.isOutOfStock) : Boolean(prev.isOutOfStock));
       map.set(idStr, {
         ...prev,
         ...item,
-        isOutOfStock: isOut
+        isOutOfStock: storedOutIds.has(idStr)
       });
     }
   }
@@ -1393,8 +1427,27 @@ export function mergeMenuItems(currentList, incomingList) {
   const all = Array.from(map.values());
   const defaultIds = new Set(MENU_ITEMS.map((m) => String(m.id)));
 
-  // Custom added items stay prominent at the top of the menu!
-  const customItems = all.filter((it) => !defaultIds.has(String(it.id)));
+  // Identify newly incoming custom items (to ensure they appear as the first dish)
+  const incomingCustomIds = new Set(
+    incoming
+      .filter((it) => it?.id && !defaultIds.has(String(it.id)))
+      .map((it) => String(it.id))
+  );
+
+  // Custom added items stay prominent at the very top of the menu as the first dish!
+  const customItems = all
+    .filter((it) => !defaultIds.has(String(it.id)))
+    .sort((a, b) => {
+      const aIsIncoming = incomingCustomIds.has(String(a.id));
+      const bIsIncoming = incomingCustomIds.has(String(b.id));
+      if (aIsIncoming && !bIsIncoming) return -1;
+      if (!aIsIncoming && bIsIncoming) return 1;
+
+      const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return timeB - timeA;
+    });
+
   const standardItems = all.filter((it) => defaultIds.has(String(it.id)));
 
   return [...customItems, ...standardItems];
@@ -1408,6 +1461,11 @@ export function broadcastMenuStockToggle(itemId, isOutOfStock, updatedMenuItems,
 
   const nextState = Boolean(isOutOfStock);
   const idStr = String(itemId);
+  const now = Date.now();
+
+  try {
+    localStorage.setItem('cinebite_stock_updated_at', String(now));
+  } catch (e) {}
 
   // 1. Update dedicated out-of-stock IDs set in localStorage
   let currentOutIds = new Set(getStoredOutOfStockIds());
@@ -1441,10 +1499,10 @@ export function broadcastMenuStockToggle(itemId, isOutOfStock, updatedMenuItems,
   // 3. Dispatch same-window and cross-tab storage events immediately
   try {
     window.dispatchEvent(new CustomEvent('cinebite:stock-updated', {
-      detail: { itemId: idStr, isOutOfStock: nextState, outOfStockIds: nextOutArray }
+      detail: { itemId: idStr, isOutOfStock: nextState, outOfStockIds: nextOutArray, updatedAt: now }
     }));
     window.dispatchEvent(new CustomEvent('cinebite:menu-updated', {
-      detail: { menuItems: menuList }
+      detail: { menuItems: menuList, updatedAt: now }
     }));
   } catch (e) {}
 
@@ -1453,7 +1511,7 @@ export function broadcastMenuStockToggle(itemId, isOutOfStock, updatedMenuItems,
       itemId: idStr,
       isOutOfStock: nextState,
       outOfStockIds: nextOutArray,
-      time: Date.now()
+      time: now
     }));
   } catch (e) {}
 
@@ -1467,13 +1525,33 @@ export function broadcastMenuStockToggle(itemId, isOutOfStock, updatedMenuItems,
         isOutOfStock: nextState,
         outOfStockIds: nextOutArray,
         menuItems: menuList,
-        time: Date.now()
+        time: now
       });
-      bc.postMessage({ type: 'menu_sync', menuItems: menuList, outOfStockIds: nextOutArray });
+      bc.postMessage({ type: 'menu_sync', menuItems: menuList, outOfStockIds: nextOutArray, time: now });
     } catch (e) {}
   }
 
-  // 5. Supabase Realtime Broadcast & Presence Track (Cross-Device Cloud Sync)
+  // 5. Local Dev Server HTTP Push (Instant local network sync for all connected phones)
+  let savedCustomItems = [];
+  try {
+    const raw = localStorage.getItem('cinebite_custom_items');
+    if (raw) savedCustomItems = JSON.parse(raw);
+  } catch (e) {}
+  if (!Array.isArray(savedCustomItems)) savedCustomItems = [];
+
+  try {
+    fetch('/api/cinebite-sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        customItems: savedCustomItems,
+        outOfStockIds: nextOutArray,
+        updatedAt: now
+      })
+    }).catch(() => {});
+  } catch (e) {}
+
+  // 6. Supabase Realtime Broadcast & Presence Track (Cross-Device Cloud Sync)
   try {
     const channel = getKitchenOrdersChannel();
     if (channel) {
@@ -1482,7 +1560,8 @@ export function broadcastMenuStockToggle(itemId, isOutOfStock, updatedMenuItems,
           channel.track({
             role: 'kitchen',
             outOfStockIds: nextOutArray,
-            updatedAt: Date.now()
+            customItems: savedCustomItems,
+            updatedAt: now
           }).catch(() => {});
         } catch (e) {}
       };
@@ -1497,7 +1576,7 @@ export function broadcastMenuStockToggle(itemId, isOutOfStock, updatedMenuItems,
               isOutOfStock: nextState,
               outOfStockIds: nextOutArray,
               menuItems: menuList,
-              time: Date.now()
+              time: now
             }
           }).catch(() => {});
 
@@ -1506,8 +1585,9 @@ export function broadcastMenuStockToggle(itemId, isOutOfStock, updatedMenuItems,
             event: 'menu_sync',
             payload: {
               menuItems: menuList,
+              customItems: savedCustomItems,
               outOfStockIds: nextOutArray,
-              sentAt: Date.now()
+              sentAt: now
             }
           }).catch(() => {});
         } catch (e) {}
@@ -1543,32 +1623,75 @@ export function broadcastMenuSync(updatedMenuItems, singleItem = null) {
   if (typeof window === 'undefined' || !updatedMenuItems) return;
 
   const storedOut = getStoredOutOfStockIds();
+  const defaultIds = new Set(MENU_ITEMS.map((m) => String(m.id)));
+  const now = Date.now();
+
   let merged = updatedMenuItems;
   try {
     const current = JSON.parse(localStorage.getItem('cinebite_menu_items') || '[]');
     merged = mergeMenuItems(current, updatedMenuItems);
     merged = applyOutOfStockToItems(merged, storedOut);
     localStorage.setItem('cinebite_menu_items', JSON.stringify(merged));
-    window.dispatchEvent(new CustomEvent('cinebite:menu-updated', { detail: { menuItems: merged } }));
+    window.dispatchEvent(new CustomEvent('cinebite:menu-updated', { 
+      detail: { menuItems: merged, item: singleItem, isNewItemAdded: Boolean(singleItem) } 
+    }));
   } catch (e) {}
 
+  const customOnly = merged.filter((it) => !defaultIds.has(String(it.id)));
+
+  // 1. Cross-tab BroadcastChannel
   const bc = getSharedBroadcastChannel();
   if (bc) {
     try {
-      bc.postMessage({ type: 'menu_sync', menuItems: merged, item: singleItem, outOfStockIds: storedOut });
+      bc.postMessage({ type: 'menu_sync', menuItems: merged, customItems: customOnly, item: singleItem, outOfStockIds: storedOut, isNewItemAdded: Boolean(singleItem) });
+      if (singleItem && singleItem.id) {
+        bc.postMessage({ type: 'menu_item_add', item: singleItem });
+      }
     } catch (e) {}
   }
 
+  // 2. Direct Local Network Push to Vite Server (Zero-latency SSE push to all phones)
+  try {
+    fetch('/api/cinebite-sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        customItems: customOnly,
+        outOfStockIds: storedOut,
+        item: singleItem,
+        updatedAt: now
+      })
+    }).catch(() => {});
+  } catch (e) {}
+
+  // 3. Cross-Device Supabase Realtime WebSocket Broadcast & Presence Track
   try {
     const channel = getKitchenOrdersChannel();
     if (channel) {
+      const doTrack = () => {
+        try {
+          channel.track({
+            role: 'kitchen',
+            outOfStockIds: storedOut,
+            customItems: customOnly,
+            updatedAt: now
+          }).catch(() => {});
+        } catch (e) {}
+      };
+
       const doSend = () => {
         try {
           channel
             .send({
               type: 'broadcast',
               event: 'menu_sync',
-              payload: { menuItems: merged, item: singleItem, outOfStockIds: storedOut, sentAt: Date.now() }
+              payload: {
+                menuItems: merged,
+                customItems: customOnly,
+                outOfStockIds: storedOut,
+                item: singleItem,
+                sentAt: now
+              }
             })
             .catch(() => {});
 
@@ -1577,18 +1700,31 @@ export function broadcastMenuSync(updatedMenuItems, singleItem = null) {
               .send({
                 type: 'broadcast',
                 event: 'menu_item_add',
-                payload: { item: singleItem, sentAt: Date.now() }
+                payload: { item: singleItem, sentAt: now }
               })
               .catch(() => {});
           }
         } catch (err) {}
       };
 
-      // Multi-burst transmission to guarantee delivery across mobile network latencies
-      doSend();
-      setTimeout(doSend, 150);
-      setTimeout(doSend, 400);
-      setTimeout(doSend, 1000);
+      if (channel.state === 'joined') {
+        doTrack();
+        doSend();
+        setTimeout(doSend, 100);
+        setTimeout(doSend, 300);
+        setTimeout(doSend, 800);
+      } else {
+        channel.subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            doTrack();
+            doSend();
+            setTimeout(doSend, 100);
+            setTimeout(doSend, 300);
+          }
+        });
+        setTimeout(doSend, 200);
+        setTimeout(doSend, 600);
+      }
     }
   } catch (e) {}
 }
@@ -1599,15 +1735,40 @@ export function broadcastMenuSync(updatedMenuItems, singleItem = null) {
 export function subscribeToMenuUpdates(onMenuUpdate) {
   if (typeof window === 'undefined' || typeof onMenuUpdate !== 'function') return () => {};
 
-  const syncOutOfStock = (outOfStockIds) => {
-    if (!Array.isArray(outOfStockIds)) return;
-    const cleanIds = saveStoredOutOfStockIds(outOfStockIds);
+  const getLocalStockUpdatedAt = () => {
     try {
+      return Number(localStorage.getItem('cinebite_stock_updated_at')) || 0;
+    } catch (e) {
+      return 0;
+    }
+  };
+
+  const syncOutOfStock = (outOfStockIds, incomingUpdatedAt = 0) => {
+    if (!Array.isArray(outOfStockIds)) return;
+    const localUpdatedAt = getLocalStockUpdatedAt();
+    if (incomingUpdatedAt && incomingUpdatedAt < localUpdatedAt) {
+      return;
+    }
+    const cleanIds = saveStoredOutOfStockIds(outOfStockIds);
+    if (incomingUpdatedAt) {
+      try {
+        localStorage.setItem('cinebite_stock_updated_at', String(incomingUpdatedAt));
+      } catch (e) {}
+    }
+    try {
+      let customItems = [];
+      try {
+        const raw = localStorage.getItem('cinebite_custom_items');
+        if (raw) customItems = JSON.parse(raw);
+      } catch (e) {}
+      if (!Array.isArray(customItems)) customItems = [];
+
       const current = JSON.parse(localStorage.getItem('cinebite_menu_items') || '[]');
       const base = Array.isArray(current) && current.length > 0 ? current : MENU_ITEMS;
-      const updated = applyOutOfStockToItems(base, cleanIds);
+      const merged = mergeMenuItems(base, customItems);
+      const updated = applyOutOfStockToItems(merged, cleanIds);
       localStorage.setItem('cinebite_menu_items', JSON.stringify(updated));
-      onMenuUpdate(updated);
+      onMenuUpdate(updated, { isOutOfStockSync: true });
     } catch (e) {}
   };
 
@@ -1617,15 +1778,17 @@ export function subscribeToMenuUpdates(onMenuUpdate) {
       const items = e?.detail?.menuItems;
       if (Array.isArray(items) && items.length > 0) {
         const storedOut = getStoredOutOfStockIds();
-        onMenuUpdate(applyOutOfStockToItems(items, storedOut));
+        const finalItems = applyOutOfStockToItems(items, storedOut);
+        onMenuUpdate(finalItems, e?.detail);
       }
     } catch (e) {}
   };
   const handleLocalStockUpdate = (e) => {
     try {
       const outIds = e?.detail?.outOfStockIds;
+      const time = Number(e?.detail?.updatedAt) || Date.now();
       if (Array.isArray(outIds)) {
-        syncOutOfStock(outIds);
+        syncOutOfStock(outIds, time);
       }
     } catch (e) {}
   };
@@ -1638,28 +1801,46 @@ export function subscribeToMenuUpdates(onMenuUpdate) {
     try {
       const data = e?.data;
       if (data?.type === 'stock_toggle') {
+        const time = Number(data.time) || Date.now();
         if (Array.isArray(data.outOfStockIds)) {
-          syncOutOfStock(data.outOfStockIds);
+          syncOutOfStock(data.outOfStockIds, time);
         } else if (data.itemId !== undefined) {
           const currentOut = new Set(getStoredOutOfStockIds());
           if (data.isOutOfStock) currentOut.add(String(data.itemId));
           else currentOut.delete(String(data.itemId));
-          syncOutOfStock(Array.from(currentOut));
+          syncOutOfStock(Array.from(currentOut), time);
         }
       } else if (data?.type === 'menu_sync' && Array.isArray(data.menuItems)) {
+        if (Array.isArray(data.customItems) && data.customItems.length > 0) {
+          try {
+            let existing = JSON.parse(localStorage.getItem('cinebite_custom_items') || '[]');
+            if (!Array.isArray(existing)) existing = [];
+            const customMap = new Map();
+            for (const it of existing) if (it?.id) customMap.set(String(it.id), it);
+            for (const it of data.customItems) if (it?.id) customMap.set(String(it.id), it);
+            localStorage.setItem('cinebite_custom_items', JSON.stringify(Array.from(customMap.values())));
+          } catch (err) {}
+        }
         const current = JSON.parse(localStorage.getItem('cinebite_menu_items') || '[]');
         const merged = mergeMenuItems(current, data.menuItems);
         const storedOut = getStoredOutOfStockIds();
         const finalItems = applyOutOfStockToItems(merged, storedOut);
         try { localStorage.setItem('cinebite_menu_items', JSON.stringify(finalItems)); } catch (err) {}
-        onMenuUpdate(finalItems);
+        onMenuUpdate(finalItems, { isNewItemAdded: Boolean(data.item || data.isNewItemAdded), item: data.item });
       } else if (data?.item && data.item.id) {
+        try {
+          let existingCustom = JSON.parse(localStorage.getItem('cinebite_custom_items') || '[]');
+          if (!Array.isArray(existingCustom)) existingCustom = [];
+          existingCustom = [data.item, ...existingCustom.filter((it) => String(it.id) !== String(data.item.id))];
+          localStorage.setItem('cinebite_custom_items', JSON.stringify(existingCustom));
+        } catch (err) {}
+
         const current = JSON.parse(localStorage.getItem('cinebite_menu_items') || '[]');
         const merged = mergeMenuItems(current, [data.item]);
         const storedOut = getStoredOutOfStockIds();
         const finalItems = applyOutOfStockToItems(merged, storedOut);
         try { localStorage.setItem('cinebite_menu_items', JSON.stringify(finalItems)); } catch (err) {}
-        onMenuUpdate(finalItems);
+        onMenuUpdate(finalItems, { isNewItemAdded: true, item: data.item });
       }
     } catch (e) {}
   };
@@ -1672,22 +1853,28 @@ export function subscribeToMenuUpdates(onMenuUpdate) {
     try {
       if (e.key === 'cinebite_out_of_stock_ids' && e.newValue) {
         const parsed = JSON.parse(e.newValue);
-        if (Array.isArray(parsed)) syncOutOfStock(parsed);
+        if (Array.isArray(parsed)) syncOutOfStock(parsed, Date.now());
       } else if (e.key === 'cinebite_stock_sync' && e.newValue) {
         const sync = JSON.parse(e.newValue);
+        const time = Number(sync.time) || Date.now();
         if (Array.isArray(sync.outOfStockIds)) {
-          syncOutOfStock(sync.outOfStockIds);
+          syncOutOfStock(sync.outOfStockIds, time);
         } else if (sync.itemId) {
           const currentOut = new Set(getStoredOutOfStockIds());
           if (sync.isOutOfStock) currentOut.add(String(sync.itemId));
           else currentOut.delete(String(sync.itemId));
-          syncOutOfStock(Array.from(currentOut));
+          syncOutOfStock(Array.from(currentOut), time);
         }
       } else if (e.key === 'cinebite_menu_items' && e.newValue) {
         const parsed = JSON.parse(e.newValue);
         if (Array.isArray(parsed) && parsed.length > 0) {
           const storedOut = getStoredOutOfStockIds();
-          const merged = mergeMenuItems([], parsed);
+          let customItems = [];
+          try {
+            const raw = localStorage.getItem('cinebite_custom_items');
+            if (raw) customItems = JSON.parse(raw);
+          } catch (err) {}
+          const merged = mergeMenuItems(parsed, customItems);
           onMenuUpdate(applyOutOfStockToItems(merged, storedOut));
         }
       }
@@ -1705,13 +1892,14 @@ export function subscribeToMenuUpdates(onMenuUpdate) {
         try {
           const payload = msg?.payload;
           if (!payload) return;
+          const time = Number(payload.time) || Date.now();
           if (Array.isArray(payload.outOfStockIds)) {
-            syncOutOfStock(payload.outOfStockIds);
+            syncOutOfStock(payload.outOfStockIds, time);
           } else if (payload.itemId !== undefined) {
             const currentOut = new Set(getStoredOutOfStockIds());
             if (payload.isOutOfStock) currentOut.add(String(payload.itemId));
             else currentOut.delete(String(payload.itemId));
-            syncOutOfStock(Array.from(currentOut));
+            syncOutOfStock(Array.from(currentOut), time);
           }
         } catch (e) {}
       });
@@ -1721,15 +1909,56 @@ export function subscribeToMenuUpdates(onMenuUpdate) {
         try {
           const presenceState = channel.presenceState();
           if (!presenceState) return;
+          let newestPresence = null;
           for (const key of Object.keys(presenceState)) {
             const presences = presenceState[key];
             if (Array.isArray(presences)) {
               for (const p of presences) {
-                if (Array.isArray(p?.outOfStockIds)) {
-                  syncOutOfStock(p.outOfStockIds);
-                  return;
+                if (p && (Array.isArray(p.outOfStockIds) || Array.isArray(p.customItems))) {
+                  const pTime = Number(p.updatedAt) || 0;
+                  if (!newestPresence || pTime > (Number(newestPresence.updatedAt) || 0)) {
+                    newestPresence = p;
+                  }
                 }
               }
+            }
+          }
+          if (newestPresence) {
+            let hasNewCustom = false;
+            if (Array.isArray(newestPresence.customItems) && newestPresence.customItems.length > 0) {
+              try {
+                let existing = JSON.parse(localStorage.getItem('cinebite_custom_items') || '[]');
+                if (!Array.isArray(existing)) existing = [];
+                const customMap = new Map();
+                for (const it of existing) if (it?.id) customMap.set(String(it.id), it);
+                let addedAny = false;
+                for (const it of newestPresence.customItems) {
+                  if (it?.id && !customMap.has(String(it.id))) {
+                    addedAny = true;
+                  }
+                  if (it?.id) customMap.set(String(it.id), it);
+                }
+                localStorage.setItem('cinebite_custom_items', JSON.stringify(Array.from(customMap.values())));
+                hasNewCustom = addedAny;
+              } catch (e) {}
+            }
+
+            if (Array.isArray(newestPresence.outOfStockIds)) {
+              const pTime = Number(newestPresence.updatedAt) || 0;
+              const localTime = getLocalStockUpdatedAt();
+              if (pTime > localTime) {
+                syncOutOfStock(newestPresence.outOfStockIds, pTime);
+                return;
+              }
+            }
+
+            if (hasNewCustom) {
+              const current = JSON.parse(localStorage.getItem('cinebite_menu_items') || '[]');
+              const merged = mergeMenuItems(current, newestPresence.customItems || []);
+              const storedOut = getStoredOutOfStockIds();
+              const finalItems = applyOutOfStockToItems(merged, storedOut);
+              try { localStorage.setItem('cinebite_menu_items', JSON.stringify(finalItems)); } catch (e) {}
+              onMenuUpdate(finalItems, { isNewItemAdded: true });
             }
           }
         } catch (e) {}
@@ -1743,22 +1972,51 @@ export function subscribeToMenuUpdates(onMenuUpdate) {
         try {
           const payload = msg?.payload;
           if (Array.isArray(payload?.outOfStockIds)) {
-            saveStoredOutOfStockIds(payload.outOfStockIds);
+            const time = Number(payload.sentAt || payload.time) || 0;
+            const localTime = getLocalStockUpdatedAt();
+            if (!time || time >= localTime) {
+              saveStoredOutOfStockIds(payload.outOfStockIds);
+            }
           }
-          if (payload?.menuItems && Array.isArray(payload.menuItems) && payload.menuItems.length > 0) {
+
+          let hasCustom = false;
+          if (Array.isArray(payload?.customItems) && payload.customItems.length > 0) {
+            try {
+              let existingCustom = JSON.parse(localStorage.getItem('cinebite_custom_items') || '[]');
+              if (!Array.isArray(existingCustom)) existingCustom = [];
+              const customMap = new Map();
+              for (const it of existingCustom) if (it?.id) customMap.set(String(it.id), it);
+              for (const it of payload.customItems) if (it?.id) customMap.set(String(it.id), it);
+              localStorage.setItem('cinebite_custom_items', JSON.stringify(Array.from(customMap.values())));
+              hasCustom = true;
+            } catch (e) {}
+          }
+
+          const incoming = Array.isArray(payload?.menuItems) && payload.menuItems.length > 0
+            ? payload.menuItems
+            : (Array.isArray(payload?.customItems) ? payload.customItems : []);
+
+          if (incoming.length > 0) {
             const current = JSON.parse(localStorage.getItem('cinebite_menu_items') || '[]');
-            const merged = mergeMenuItems(current, payload.menuItems);
+            const merged = mergeMenuItems(current, incoming);
             const storedOut = getStoredOutOfStockIds();
             const finalItems = applyOutOfStockToItems(merged, storedOut);
-            localStorage.setItem('cinebite_menu_items', JSON.stringify(finalItems));
-            onMenuUpdate(finalItems);
+            try { localStorage.setItem('cinebite_menu_items', JSON.stringify(finalItems)); } catch (e) {}
+            onMenuUpdate(finalItems, { isNewItemAdded: hasCustom || Boolean(payload?.item), item: payload?.item });
           } else if (payload?.item && payload.item.id) {
+            try {
+              let existingCustom = JSON.parse(localStorage.getItem('cinebite_custom_items') || '[]');
+              if (!Array.isArray(existingCustom)) existingCustom = [];
+              existingCustom = [payload.item, ...existingCustom.filter((it) => String(it.id) !== String(payload.item.id))];
+              localStorage.setItem('cinebite_custom_items', JSON.stringify(existingCustom));
+            } catch (e) {}
+
             const current = JSON.parse(localStorage.getItem('cinebite_menu_items') || '[]');
             const merged = mergeMenuItems(current, [payload.item]);
             const storedOut = getStoredOutOfStockIds();
             const finalItems = applyOutOfStockToItems(merged, storedOut);
-            localStorage.setItem('cinebite_menu_items', JSON.stringify(finalItems));
-            onMenuUpdate(finalItems);
+            try { localStorage.setItem('cinebite_menu_items', JSON.stringify(finalItems)); } catch (e) {}
+            onMenuUpdate(finalItems, { isNewItemAdded: true, item: payload.item });
           }
         } catch (e) {}
       });
@@ -1768,22 +2026,35 @@ export function subscribeToMenuUpdates(onMenuUpdate) {
         try {
           const item = msg?.payload?.item;
           if (item && item.id) {
+            try {
+              let existingCustom = JSON.parse(localStorage.getItem('cinebite_custom_items') || '[]');
+              if (!Array.isArray(existingCustom)) existingCustom = [];
+              existingCustom = [item, ...existingCustom.filter((it) => String(it.id) !== String(item.id))];
+              localStorage.setItem('cinebite_custom_items', JSON.stringify(existingCustom));
+            } catch (e) {}
+
             const current = JSON.parse(localStorage.getItem('cinebite_menu_items') || '[]');
             const merged = mergeMenuItems(current, [item]);
             const storedOut = getStoredOutOfStockIds();
             const finalItems = applyOutOfStockToItems(merged, storedOut);
-            localStorage.setItem('cinebite_menu_items', JSON.stringify(finalItems));
-            onMenuUpdate(finalItems);
+            try { localStorage.setItem('cinebite_menu_items', JSON.stringify(finalItems)); } catch (e) {}
+            onMenuUpdate(finalItems, { isNewItemAdded: true, item });
           }
         } catch (e) {}
       });
 
-      // 4E. Answer sync requests: ONLY if staff is authenticated on this device!
+      // 4E. Answer sync requests: if staff authenticated OR if on kitchen dashboard route
       channel.on('broadcast', { event: 'request_menu_sync' }, () => {
         try {
-          const isStaff = typeof sessionStorage !== 'undefined' && sessionStorage.getItem('cinebite_staff_auth');
-          if (!isStaff) return; // Non-staff customer phones NEVER answer sync requests!
+          const isStaff = typeof window !== 'undefined' && (
+            (typeof sessionStorage !== 'undefined' && Boolean(sessionStorage.getItem('cinebite_staff_auth'))) ||
+            (typeof localStorage !== 'undefined' && Boolean(localStorage.getItem('cinebite_staff_auth'))) ||
+            (window.location.pathname.includes('kitchen') || window.location.pathname.includes('staff'))
+          );
+          if (!isStaff) return;
+
           const current = JSON.parse(localStorage.getItem('cinebite_menu_items') || '[]');
+          const customItems = JSON.parse(localStorage.getItem('cinebite_custom_items') || '[]');
           const storedOut = getStoredOutOfStockIds();
           if (Array.isArray(current) && current.length > 0) {
             channel.send({
@@ -1791,6 +2062,7 @@ export function subscribeToMenuUpdates(onMenuUpdate) {
               event: 'menu_sync',
               payload: {
                 menuItems: current,
+                customItems: Array.isArray(customItems) ? customItems : [],
                 outOfStockIds: storedOut,
                 answeredBy: 'staff',
                 answeredAt: Date.now()
@@ -1832,14 +2104,93 @@ export function subscribeToMenuUpdates(onMenuUpdate) {
     }
   }
 
-  // 5. Re-sync on tab visibility / phone wake-up
+  // 5. Direct Local Dev Server SSE & HTTP Synchronizer (Instant local network sync across all connected phones)
+  let sseSource = null;
+  let pollInterval = null;
+
+  if (typeof window !== 'undefined') {
+    const handleServerSync = (data) => {
+      try {
+        if (!data) return;
+        let hasCustom = false;
+        if (Array.isArray(data.customItems) && data.customItems.length > 0) {
+          let existingCustom = JSON.parse(localStorage.getItem('cinebite_custom_items') || '[]');
+          if (!Array.isArray(existingCustom)) existingCustom = [];
+          const customMap = new Map();
+          for (const it of existingCustom) if (it?.id) customMap.set(String(it.id), it);
+          let added = false;
+          for (const it of data.customItems) {
+            if (it?.id && !customMap.has(String(it.id))) added = true;
+            if (it?.id) customMap.set(String(it.id), it);
+          }
+          localStorage.setItem('cinebite_custom_items', JSON.stringify(Array.from(customMap.values())));
+          hasCustom = added;
+        } else if (data.item && data.item.id) {
+          let existingCustom = JSON.parse(localStorage.getItem('cinebite_custom_items') || '[]');
+          if (!Array.isArray(existingCustom)) existingCustom = [];
+          const exists = existingCustom.some((it) => String(it.id) === String(data.item.id));
+          existingCustom = [data.item, ...existingCustom.filter((it) => String(it.id) !== String(data.item.id))];
+          localStorage.setItem('cinebite_custom_items', JSON.stringify(existingCustom));
+          hasCustom = !exists;
+        }
+
+        if (Array.isArray(data.outOfStockIds)) {
+          saveStoredOutOfStockIds(data.outOfStockIds);
+        }
+
+        if (hasCustom || (Array.isArray(data.outOfStockIds) && data.outOfStockIds.length > 0)) {
+          const current = JSON.parse(localStorage.getItem('cinebite_menu_items') || '[]');
+          const custom = JSON.parse(localStorage.getItem('cinebite_custom_items') || '[]');
+          const merged = mergeMenuItems(current, custom);
+          const storedOut = getStoredOutOfStockIds();
+          const finalItems = applyOutOfStockToItems(merged, storedOut);
+          try { localStorage.setItem('cinebite_menu_items', JSON.stringify(finalItems)); } catch (e) {}
+          onMenuUpdate(finalItems, { isNewItemAdded: hasCustom, item: data.item });
+        }
+      } catch (err) {}
+    };
+
+    // Connect to SSE stream
+    try {
+      if (window.EventSource) {
+        sseSource = new EventSource('/api/cinebite-stream');
+        sseSource.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            handleServerSync(data);
+          } catch (e) {}
+        };
+      }
+    } catch (e) {}
+
+    // Polling fallback every 2.5 seconds
+    pollInterval = setInterval(() => {
+      try {
+        fetch('/api/cinebite-sync')
+          .then((r) => (r.ok && r.headers.get('content-type')?.includes('application/json') ? r.json() : null))
+          .then((data) => { if (data) handleServerSync(data); })
+          .catch(() => {});
+      } catch (e) {}
+    }, 2500);
+
+    // Initial sync immediately
+    try {
+      fetch('/api/cinebite-sync')
+        .then((r) => (r.ok && r.headers.get('content-type')?.includes('application/json') ? r.json() : null))
+        .then((data) => { if (data) handleServerSync(data); })
+        .catch(() => {});
+    } catch (e) {}
+  }
+
+  // 6. Re-sync on tab visibility / phone wake-up
   const handleVisibility = () => {
     if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
       try {
         const storedOut = getStoredOutOfStockIds();
         const current = JSON.parse(localStorage.getItem('cinebite_menu_items') || '[]');
         if (Array.isArray(current) && current.length > 0) {
-          onMenuUpdate(applyOutOfStockToItems(current, storedOut));
+          const merged = mergeMenuItems(current, []);
+          onMenuUpdate(applyOutOfStockToItems(merged, storedOut));
         }
         if (channel) {
           const presenceState = channel.presenceState();
@@ -1847,7 +2198,11 @@ export function subscribeToMenuUpdates(onMenuUpdate) {
             for (const key of Object.keys(presenceState)) {
               for (const p of presenceState[key] || []) {
                 if (Array.isArray(p?.outOfStockIds)) {
-                  syncOutOfStock(p.outOfStockIds);
+                  const pTime = Number(p.updatedAt) || 0;
+                  const localTime = getLocalStockUpdatedAt();
+                  if (pTime > localTime) {
+                    syncOutOfStock(p.outOfStockIds, pTime);
+                  }
                   return;
                 }
               }
@@ -1859,6 +2214,18 @@ export function subscribeToMenuUpdates(onMenuUpdate) {
             payload: { time: Date.now() }
           }).catch(() => {});
         }
+        fetch('/api/cinebite-sync')
+          .then((r) => (r.ok && r.headers.get('content-type')?.includes('application/json') ? r.json() : null))
+          .then((data) => {
+            if (data && (data.customItems?.length || data.outOfStockIds?.length)) {
+              const current = JSON.parse(localStorage.getItem('cinebite_menu_items') || '[]');
+              const custom = Array.isArray(data.customItems) ? data.customItems : [];
+              const merged = mergeMenuItems(current, custom);
+              const storedOut = getStoredOutOfStockIds();
+              onMenuUpdate(applyOutOfStockToItems(merged, storedOut));
+            }
+          })
+          .catch(() => {});
       } catch (e) {}
     }
   };
@@ -1870,6 +2237,10 @@ export function subscribeToMenuUpdates(onMenuUpdate) {
 
   return () => {
     timers.forEach((t) => clearTimeout(t));
+    if (pollInterval) clearInterval(pollInterval);
+    if (sseSource) {
+      try { sseSource.close(); } catch (e) {}
+    }
     window.removeEventListener('cinebite:menu-updated', handleLocalMenuUpdate);
     window.removeEventListener('cinebite:stock-updated', handleLocalStockUpdate);
     window.removeEventListener('storage', handleStorage);

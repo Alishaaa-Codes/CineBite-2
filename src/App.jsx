@@ -98,6 +98,7 @@ export default function App() {
     if (typeof window !== 'undefined') {
       try {
         sessionStorage.setItem('cinebite_staff_auth', JSON.stringify(auth));
+        localStorage.setItem('cinebite_staff_auth', JSON.stringify(auth));
       } catch (e) {}
     }
   }, []);
@@ -130,6 +131,10 @@ export default function App() {
 
   const navigateTo = useCallback((view) => {
     setPortalView(view);
+    if (view === 'customer') {
+      setSelectedCategory('all');
+      setSearchQuery('');
+    }
     if (typeof window !== 'undefined') {
       const newPath = view === 'staff' ? '/kitchen' : '/';
       window.history.pushState(null, '', newPath);
@@ -186,15 +191,22 @@ export default function App() {
     if (typeof window !== 'undefined') {
       try {
         const storedOutIds = getStoredOutOfStockIds();
-        const saved = localStorage.getItem('cinebite_menu_items');
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            const merged = mergeMenuItems([], parsed);
-            return applyOutOfStockToItems(merged, storedOutIds);
-          }
-        }
-        return applyOutOfStockToItems(MENU_ITEMS, storedOutIds);
+        let customItems = [];
+        try {
+          const rawCustom = localStorage.getItem('cinebite_custom_items');
+          if (rawCustom) customItems = JSON.parse(rawCustom);
+        } catch (e) {}
+        if (!Array.isArray(customItems)) customItems = [];
+
+        let saved = [];
+        try {
+          const rawSaved = localStorage.getItem('cinebite_menu_items');
+          if (rawSaved) saved = JSON.parse(rawSaved);
+        } catch (e) {}
+        if (!Array.isArray(saved)) saved = [];
+
+        const combined = mergeMenuItems(saved, customItems);
+        return applyOutOfStockToItems(combined, storedOutIds);
       } catch (e) {}
     }
     return MENU_ITEMS;
@@ -202,9 +214,26 @@ export default function App() {
 
   // Sync menu changes across multiple browser tabs / windows and cross-device realtime
   useEffect(() => {
-    const unsub = subscribeToMenuUpdates((fresh) => {
+    const unsub = subscribeToMenuUpdates((fresh, meta) => {
       if (Array.isArray(fresh) && fresh.length > 0) {
-        setMenuItems(fresh);
+        setMenuItems((prev) => {
+          const prevCustomIds = new Set(
+            (prev || [])
+              .filter((it) => it?.id && (String(it.id).startsWith('item-') || !MENU_ITEMS.some((m) => String(m.id) === String(it.id))))
+              .map((it) => String(it.id))
+          );
+          const freshCustom = fresh.filter(
+            (it) => it?.id && !prevCustomIds.has(String(it.id)) && (String(it.id).startsWith('item-') || !MENU_ITEMS.some((m) => String(m.id) === String(it.id)))
+          );
+
+          if (meta?.isNewItemAdded || freshCustom.length > 0) {
+            // New food item published! Reset filters on customer device so dish appears immediately!
+            setSelectedCategory('all');
+            setSearchQuery('');
+            setVegOnly(false);
+          }
+          return fresh;
+        });
       }
     });
     return unsub;
@@ -212,23 +241,48 @@ export default function App() {
 
   // Add new food item from Kitchen Dashboard
   const handleAddNewItem = useCallback((newItem) => {
+    if (!newItem || !newItem.id) return;
+
+    // 1. Immediately reset active category and search filters so the new item is guaranteed visible!
+    setSelectedCategory('all');
+    setSearchQuery('');
+    setVegOnly(false);
+
+    // 2. Persist to dedicated custom items array in localStorage SYNCHRONOUSLY
+    let customList = [];
+    try {
+      const savedCustom = localStorage.getItem('cinebite_custom_items');
+      if (savedCustom) customList = JSON.parse(savedCustom);
+    } catch (e) {}
+    if (!Array.isArray(customList)) customList = [];
+    customList = [newItem, ...customList.filter((it) => String(it.id) !== String(newItem.id))];
+    try {
+      localStorage.setItem('cinebite_custom_items', JSON.stringify(customList));
+    } catch (e) {}
+
+    // 3. Compute finalItems SYNCHRONOUSLY BEFORE calling setMenuItems or broadcastMenuSync
     let current = [];
     try {
       const saved = localStorage.getItem('cinebite_menu_items');
       if (saved) current = JSON.parse(saved);
     } catch (e) {}
     if (!Array.isArray(current) || current.length === 0) {
-      current = MENU_ITEMS;
+      current = Array.isArray(menuItems) && menuItems.length > 0 ? menuItems : MENU_ITEMS;
     }
-    const nextList = mergeMenuItems(current, [newItem]);
-    const storedOut = getStoredOutOfStockIds();
-    const finalItems = applyOutOfStockToItems(nextList, storedOut);
+    const filtered = current.filter((it) => String(it.id) !== String(newItem.id));
+    const finalItems = [newItem, ...filtered];
+
+    // 4. Save to localStorage SYNCHRONOUSLY
     try {
       localStorage.setItem('cinebite_menu_items', JSON.stringify(finalItems));
     } catch (e) {}
+
+    // 5. Update React state immediately
     setMenuItems(finalItems);
+
+    // 6. Synchronize across tabs and devices (finalItems is 100% DEFINED and non-empty!)
     broadcastMenuSync(finalItems, newItem);
-  }, []);
+  }, [menuItems]);
 
   // Toggle item in/out of stock from Kitchen Dashboard
   const handleToggleStock = useCallback((itemId) => {
@@ -245,17 +299,32 @@ export default function App() {
     const updatedOutArray = Array.from(currentOut);
     saveStoredOutOfStockIds(updatedOutArray);
 
+    let nextList;
     setMenuItems((prev) => {
       const base = Array.isArray(prev) && prev.length > 0 ? prev : MENU_ITEMS;
-      const nextList = base.map((item) =>
+      nextList = base.map((item) =>
         String(item.id) === idStr ? { ...item, isOutOfStock: nextState } : item
       );
       try {
         localStorage.setItem('cinebite_menu_items', JSON.stringify(nextList));
       } catch (e) {}
-      broadcastMenuStockToggle(idStr, nextState, nextList, updatedOutArray);
       return nextList;
     });
+
+    if (nextList) {
+      broadcastMenuStockToggle(idStr, nextState, nextList, updatedOutArray);
+    }
+
+    // Immediately evict from cart if toggled to out of stock
+    if (nextState) {
+      setCart((prevCart) =>
+        prevCart.filter((ci) => {
+          const rawId = String(ci.menuItemId || ci.id);
+          const baseId = rawId.split('-size-')[0];
+          return rawId !== idStr && baseId !== idStr;
+        })
+      );
+    }
   }, []);
 
   // 6. Category & Filter States
@@ -305,6 +374,18 @@ export default function App() {
   const [sizeModalItem, setSizeModalItem] = useState(null);
   const [isSizeModalOpen, setIsSizeModalOpen] = useState(false);
 
+  // Helper to reliably check if an item is out of stock across all views
+  const isItemOutOfStock = useCallback((itemOrId) => {
+    if (!itemOrId) return true;
+    const id = typeof itemOrId === 'object' ? itemOrId.id : itemOrId;
+    const idStr = String(id).split('-size-')[0];
+    const storedOut = new Set(getStoredOutOfStockIds());
+    if (storedOut.has(idStr)) return true;
+    if (typeof itemOrId === 'object' && itemOrId.isOutOfStock) return true;
+    const itemInMenu = menuItems.find((m) => String(m.id) === idStr);
+    return Boolean(itemInMenu?.isOutOfStock);
+  }, [menuItems]);
+
   // Real-time status subscription from Supabase for customer
   useEffect(() => {
     if (activeOrder?.dbOrderId || activeOrder?.orderId) {
@@ -325,28 +406,38 @@ export default function App() {
 
   // Automatically remove any out-of-stock items from active cart if kitchen marks them out of stock
   useEffect(() => {
-    const outOfStockIds = new Set(
-      menuItems.filter((it) => it.isOutOfStock).map((it) => it.id)
-    );
+    const storedOut = new Set(getStoredOutOfStockIds());
+    const outOfStockIds = new Set([
+      ...storedOut,
+      ...menuItems.filter((it) => it.isOutOfStock).map((it) => String(it.id))
+    ]);
     if (outOfStockIds.size > 0) {
       setCart((prevCart) => {
-        const hasOut = prevCart.some((ci) => outOfStockIds.has(ci.menuItemId || ci.id));
+        const hasOut = prevCart.some((ci) => {
+          const rawId = String(ci.menuItemId || ci.id);
+          const baseId = rawId.split('-size-')[0];
+          return outOfStockIds.has(rawId) || outOfStockIds.has(baseId) || Boolean(ci.isOutOfStock);
+        });
         if (!hasOut) return prevCart;
-        return prevCart.filter((ci) => !outOfStockIds.has(ci.menuItemId || ci.id));
+        return prevCart.filter((ci) => {
+          const rawId = String(ci.menuItemId || ci.id);
+          const baseId = rawId.split('-size-')[0];
+          return !outOfStockIds.has(rawId) && !outOfStockIds.has(baseId) && !ci.isOutOfStock;
+        });
       });
     }
   }, [menuItems]);
 
   // Open Size & Weight Selector Modal (for food categories with weight specification)
   const handleOpenSizeModal = (item) => {
-    if (item?.isOutOfStock) return;
+    if (isItemOutOfStock(item)) return;
     setSizeModalItem(item);
     setIsSizeModalOpen(true);
   };
 
   // Confirm size from modal
   const handleConfirmSize = (item, selectedSize, quantity = 1) => {
-    if (item?.isOutOfStock) return;
+    if (isItemOutOfStock(item)) return;
     const cartItemId = `${item.id}-size-${selectedSize.id}`;
     const cartItem = {
       ...item,
@@ -371,7 +462,7 @@ export default function App() {
 
   // Cart operations (Direct add for items without weight options)
   const handleAddToCart = (item) => {
-    if (item?.isOutOfStock) return;
+    if (isItemOutOfStock(item)) return;
     setCart((prevCart) => {
       const existing = prevCart.find((ci) => ci.id === item.id);
       if (existing) {
@@ -385,6 +476,10 @@ export default function App() {
   };
 
   const handleUpdateQuantity = (itemId, newQuantity) => {
+    if (isItemOutOfStock(itemId)) {
+      handleRemoveItem(itemId);
+      return;
+    }
     if (newQuantity <= 0) {
       handleRemoveItem(itemId);
       return;
@@ -652,7 +747,7 @@ export default function App() {
           ) : (
             <div className="menu-grid">
               {filteredItems.map((item) => {
-                const hasWeightSpec = Boolean(item.hasWeightOptions || item.categoryId === 'popcorn');
+                const hasWeightSpec = Boolean(item.hasWeightOptions && item.weightOptions?.length);
                 const quantity = hasWeightSpec
                   ? cart
                       .filter((ci) => ci.menuItemId === item.id || ci.id === item.id || ci.id.startsWith(item.id))

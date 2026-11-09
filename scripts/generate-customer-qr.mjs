@@ -3,8 +3,8 @@ import path from 'path';
 import { execSync } from 'child_process';
 import { generateQRMatrix } from '../src/lib/qrCode.js';
 
-// The universal customer dining website URL (works on any phone connected to the Wi-Fi)
-const TARGET_URL = 'http://192.168.29.91:5173/';
+// The universal customer dining website URL (works on any phone connected to Wi-Fi or live Vercel domain)
+const TARGET_URL = process.argv[2] || process.env.VITE_PUBLIC_URL || 'http://192.168.29.91:5173/';
 
 console.log(`Generating universal customer QR code for: ${TARGET_URL}`);
 
@@ -132,9 +132,9 @@ ${qrRects}
 
     <!-- Wi-Fi URL Badge -->
     <g transform="translate(0, 122)">
-      <rect x="-190" y="0" width="380" height="28" rx="6" fill="#1A1E29" stroke="#FFFFFF" stroke-width="1" stroke-opacity="0.15" />
+      <rect x="-210" y="0" width="420" height="28" rx="6" fill="#1A1E29" stroke="#FFFFFF" stroke-width="1" stroke-opacity="0.15" />
       <text x="0" y="18" font-family="monospace" font-size="12" font-weight="700" fill="#FF9F1C" text-anchor="middle">
-        Wi-Fi Link: ${TARGET_URL}
+        Direct Link: ${TARGET_URL}
       </text>
     </g>
   </g>
@@ -142,7 +142,7 @@ ${qrRects}
 `.trim();
 
 // Target Paths
-const artifactDir = '/Users/alishaanjum/.gemini/antigravity/brain/802f035e-186c-49f2-996d-3ac6f7bd75c8';
+const artifactDir = '/Users/alishaanjum/.gemini/antigravity/brain/cdea04a4-02d3-4435-83c8-04b738e25ef3';
 const publicDir = '/Users/alishaanjum/Desktop/Nischay/CineBite/public/images';
 const workspaceDir = '/Users/alishaanjum/Desktop/Nischay/CineBite';
 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Plus, Minus, Scale, Check, Popcorn } from 'lucide-react';
 import '../styles/item-size-modal.css';
 
@@ -10,19 +10,36 @@ export default function ItemSizeModal({
 }) {
   if (!isOpen || !item) return null;
 
-  const options = item.weightOptions || [
-    { id: 'small', name: 'Small', weight: '90g', price: Math.round(item.price * 0.65), description: 'Single serve (90g)' },
-    { id: 'medium', name: 'Medium', weight: '150g', price: Math.round(item.price * 0.85), description: 'Regular cinema tub (150g)' },
-    { id: 'large', name: 'Large', weight: '250g', price: item.price, description: 'Jumbo sharing tub (250g)' }
-  ];
+  const options = Array.isArray(item.weightOptions) && item.weightOptions.length > 0
+    ? item.weightOptions
+    : [
+        { id: 'small', name: 'Small', weight: '90g', price: Math.round(item.price * 0.65), description: 'Single serve (90g)' },
+        { id: 'medium', name: 'Medium', weight: '150g', price: Math.round(item.price * 0.85), description: 'Regular cinema tub (150g)' },
+        { id: 'large', name: 'Large', weight: '250g', price: item.price, description: 'Jumbo sharing tub (250g)' }
+      ];
 
   const [selectedSizeId, setSelectedSizeId] = useState(options[1]?.id || options[0]?.id);
   const [quantity, setQuantity] = useState(1);
 
+  useEffect(() => {
+    if (item) {
+      const opts = Array.isArray(item.weightOptions) && item.weightOptions.length > 0
+        ? item.weightOptions
+        : [];
+      if (opts.length > 0) {
+        setSelectedSizeId(opts[1]?.id || opts[0]?.id);
+      }
+      setQuantity(1);
+    }
+  }, [item?.id]);
+
   const selectedOption = options.find((o) => o.id === selectedSizeId) || options[0];
   const totalPrice = (selectedOption?.price || item.price) * quantity;
 
+  const isOutOfStock = Boolean(item.isOutOfStock);
+
   const handleConfirm = () => {
+    if (isOutOfStock) return;
     onConfirm(item, selectedOption, quantity);
     onClose();
   };
@@ -143,12 +160,13 @@ export default function ItemSizeModal({
 
           <button
             type="button"
-            className="item-size-submit-btn"
+            className={`item-size-submit-btn ${isOutOfStock ? 'disabled' : ''}`}
             onClick={handleConfirm}
+            disabled={isOutOfStock}
           >
-            <span>Add to Cart</span>
-            <span className="item-size-submit-dot">•</span>
-            <span className="item-size-submit-price">₹{totalPrice}</span>
+            <span>{isOutOfStock ? 'Sold Out' : 'Add to Cart'}</span>
+            {!isOutOfStock && <span className="item-size-submit-dot">•</span>}
+            {!isOutOfStock && <span className="item-size-submit-price">₹{totalPrice}</span>}
           </button>
         </div>
       </div>

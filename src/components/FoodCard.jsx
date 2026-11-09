@@ -13,7 +13,7 @@ export default function FoodCard({
   // Fallback image gradient placeholder
   const fallbackImg = `https://images.unsplash.com/photo-1518173946687-a4c8a383392e?auto=format&fit=crop&w=700&q=80`;
 
-  const hasWeightSpec = Boolean(item.hasWeightOptions || item.categoryId === 'popcorn');
+  const hasWeightSpec = Boolean(item.hasWeightOptions && item.weightOptions?.length);
   
   const minPrice = hasWeightSpec && item.weightOptions?.length 
     ? Math.min(...item.weightOptions.map((o) => o.price)) 

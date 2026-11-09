@@ -73,7 +73,7 @@ export default function AddItemModal({ isOpen, onClose, onAddItem }) {
         img.onload = () => {
           try {
             const canvas = document.createElement('canvas');
-            const maxDimension = 400;
+            const maxDimension = 320;
             let w = img.width;
             let h = img.height;
             if (w > maxDimension || h > maxDimension) {
@@ -89,7 +89,7 @@ export default function AddItemModal({ isOpen, onClose, onAddItem }) {
             canvas.height = h;
             const ctx = canvas.getContext('2d');
             ctx.drawImage(img, 0, 0, w, h);
-            const compressed = canvas.toDataURL('image/jpeg', 0.68);
+            const compressed = canvas.toDataURL('image/jpeg', 0.65);
             setImagePreview(compressed);
             setImageUrl(compressed);
             setError('');
@@ -167,12 +167,13 @@ export default function AddItemModal({ isOpen, onClose, onAddItem }) {
       tag: tag.trim() || undefined,
       portion: hasPortions ? `Large (${largeWeight || '250g'})` : (singlePortionLabel.trim() || 'Standard Serve'),
       imageUrl: finalImage,
-      hasWeightOptions: hasPortions,
+      hasWeightOptions: Boolean(hasPortions),
       isOutOfStock: false,
       createdAt: new Date().toISOString()
     };
 
     if (hasPortions) {
+      newItem.hasWeightOptions = true;
       newItem.weightOptions = [
         {
           id: 'small',
@@ -196,6 +197,9 @@ export default function AddItemModal({ isOpen, onClose, onAddItem }) {
           description: `Jumbo sharing tub (${largeWeight || '250g'})`
         }
       ];
+    } else {
+      newItem.hasWeightOptions = false;
+      newItem.weightOptions = undefined;
     }
 
     onAddItem(newItem);

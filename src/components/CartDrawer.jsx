@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { isSupabaseConfigured } from '../lib/supabase';
+import { isSupabaseConfigured, getStoredOutOfStockIds } from '../lib/supabase';
 import { 
   X, 
   Trash2, 
@@ -89,7 +89,12 @@ export default function CartDrawer({
     }
 
     // 5. Valid Stock details
-    const outOfStockInCart = cart.find((ci) => ci.isOutOfStock);
+    const storedOut = new Set(getStoredOutOfStockIds());
+    const outOfStockInCart = cart.find((ci) => {
+      const rawId = String(ci.menuItemId || ci.id);
+      const baseId = rawId.split('-size-')[0];
+      return ci.isOutOfStock || storedOut.has(rawId) || storedOut.has(baseId);
+    });
     if (outOfStockInCart) {
       return {
         field: 'stock',
