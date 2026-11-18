@@ -1,12 +1,13 @@
 import React from 'react';
-import { Popcorn, ShoppingBag, MapPin } from 'lucide-react';
+import { Popcorn, ShoppingBag, MapPin, QrCode } from 'lucide-react';
 
 export default function Header({ 
   cinemaDetails, 
   onOpenSeatModal, 
   onOpenCart, 
   totalCartItems,
-  onOpenKitchen
+  onOpenKitchen,
+  onOpenQRModal
 }) {
   const screenLabel = cinemaDetails?.screenName 
     ? cinemaDetails.screenName.split('(')[0].trim() 
@@ -35,8 +36,34 @@ export default function Header({
           </div>
         </div>
 
-        {/* Action Buttons: Kitchen Portal & Shopping Cart */}
+        {/* Action Buttons: QR Standee, Kitchen Portal & Shopping Cart */}
         <div className="header-actions">
+          {onOpenQRModal && (
+            <button 
+              type="button"
+              className="header-qr-btn"
+              onClick={onOpenQRModal}
+              title="Open Cinema QR Code Standee & Scanner"
+              style={{
+                background: 'rgba(229, 9, 20, 0.12)',
+                border: '1px solid rgba(229, 9, 20, 0.45)',
+                color: '#FF4D4D',
+                padding: '6px 12px',
+                borderRadius: 'var(--radius-full)',
+                fontSize: '0.78rem',
+                fontWeight: 700,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease'
+              }}
+            >
+              <QrCode size={14} />
+              <span>QR Code</span>
+            </button>
+          )}
+
           {onOpenKitchen && (
             <button 
               type="button"

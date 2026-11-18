@@ -35,18 +35,17 @@ export default function SeatQRModal({
     cinemaDetails?.theaterName || 'PVR INOX Grand Cinema'
   );
 
-  // 2. Base Host / IP: Default to active Wi-Fi IP (192.168.29.91:5173) if on localhost so phones can reach it
+  // 2. Base Host / IP: Default to live Vercel production domain
   const [baseHost, setBaseHost] = useState(() => {
     if (typeof window !== 'undefined') {
       const hostname = window.location.hostname;
       const port = window.location.port ? `:${window.location.port}` : '';
       if (hostname === 'localhost' || hostname === '127.0.0.1') {
-        // Default to known active local Wi-Fi IP so any phone on the network works
-        return `http://192.168.29.91:5173`;
+        return 'https://cine-bite-2-jo85.vercel.app';
       }
       return `${window.location.protocol}//${hostname}${port}`;
     }
-    return 'http://192.168.29.91:5173';
+    return 'https://cine-bite-2-jo85.vercel.app';
   });
 
   const [copied, setCopied] = useState(false);
@@ -331,11 +330,11 @@ export default function SeatQRModal({
 
             {/* Step-by-Step Test Instructions */}
             <div className="qr-test-steps">
-              <h4>📱 Test Right Now From Your Phone:</h4>
+              <h4>📱 Scan from Any Phone:</h4>
               <ol>
-                <li>Ensure your phone is connected to the same Wi-Fi (<strong>192.168.29.x</strong>).</li>
-                <li>Open your phone's camera app and point it at the QR code on the left.</li>
-                <li>Tap the yellow/red link popup to open the CineBite dining menu directly on your phone!</li>
+                <li>Open your smartphone camera app (iPhone Camera or Android Google Lens).</li>
+                <li>Point it at the QR code on the left.</li>
+                <li>Tap the link popup to open your live Vercel menu at <strong>https://cine-bite-2-jo85.vercel.app</strong>!</li>
               </ol>
             </div>
           </div>
@@ -343,6 +342,16 @@ export default function SeatQRModal({
 
         {/* Footer Actions */}
         <div className="qr-modal-footer">
+          <a 
+            href="/images/cinebite_customer_dining_qr.png" 
+            download="CineBite-Cinema-Standee-QR.png"
+            className="qr-btn-action"
+            style={{ textDecoration: 'none' }}
+          >
+            <Download size={14} />
+            <span>Download Standee PNG</span>
+          </a>
+
           <button className="qr-btn-action" onClick={handleDownloadSvg}>
             <Download size={14} />
             <span>Download QR SVG</span>

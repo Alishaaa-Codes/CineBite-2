@@ -599,13 +599,14 @@ export default function App() {
   // ---------------------------------------------------------------------------
   return (
     <div className="cinebite-app">
-      {/* 1. Header with cinema branding, kitchen toggle, and seat pill */}
+      {/* 1. Header with cinema branding, kitchen toggle, QR standee, and seat pill */}
       <Header
         cinemaDetails={cinemaDetails}
         onOpenSeatModal={() => setIsSeatModalOpen(true)}
         onOpenCart={() => setIsCartOpen(true)}
         totalCartItems={totalCartCount}
         onOpenKitchen={() => navigateTo('staff')}
+        onOpenQRModal={() => setIsQRModalOpen(true)}
       />
 
       {/* Main Container */}
@@ -860,6 +861,20 @@ export default function App() {
           setSizeModalItem(null);
         }}
         onConfirm={handleConfirmSize}
+      />
+
+      {/* 12. In-Seat Cinema QR Standee & Scanner Modal */}
+      <SeatQRModal
+        isOpen={isQRModalOpen}
+        onClose={() => setIsQRModalOpen(false)}
+        cinemaDetails={cinemaDetails}
+        onUpdateSeat={(newSeat) => {
+          if (typeof newSeat === 'string') {
+            setCinemaDetails((prev) => ({ ...prev, seatNumber: newSeat }));
+          } else if (newSeat && typeof newSeat === 'object') {
+            setCinemaDetails(newSeat);
+          }
+        }}
       />
     </div>
   );
