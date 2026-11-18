@@ -72,11 +72,24 @@ export default function KitchenDashboard({
     return () => clearInterval(timer);
   }, []);
 
+  // Helper to test if an order belongs to this authenticated cinema
+  const matchesCurrentCinema = useCallback((o) => {
+    if (!o) return false;
+    if (!staffProfile?.theatre_slug && !staffProfile?.theatre_id) return true;
+    if (o.theatre_slug && staffProfile?.theatre_slug && o.theatre_slug.toLowerCase() === staffProfile.theatre_slug.toLowerCase()) return true;
+    if (o.theatre_id && staffProfile?.theatre_id && o.theatre_id === staffProfile.theatre_id) return true;
+    if (o.theatre_name && staffProfile?.theatre_name && (
+      o.theatre_name.toLowerCase().includes(staffProfile.theatre_name.toLowerCase()) ||
+      staffProfile.theatre_name.toLowerCase().includes(o.theatre_name.toLowerCase())
+    )) return true;
+    return false;
+  }, [staffProfile]);
+
   // Load Orders (silent sync without loading spinner for fluid live updates)
   const loadOrders = useCallback(async (isInitial = false) => {
     try {
       if (isInitial) setIsLoading(true);
-      const data = await fetchStaffOrders(isDemoMode);
+      const data = await fetchStaffOrders(isDemoMode, staffProfile?.theatre_id, staffProfile?.theatre_slug);
       if (Array.isArray(data)) {
         setOrders((prev) => {
           const prevKey = prev.map((o) => `${o.id || o.order_number}:${o.status}`).join('|');
@@ -99,38 +112,39 @@ export default function KitchenDashboard({
     } finally {
       if (isInitial) setIsLoading(false);
     }
-  }, [isDemoMode]);
+  }, [isDemoMode, staffProfile?.theatre_id, staffProfile?.theatre_slug]);
 
   useEffect(() => {
     // 1. Initial load
     loadOrders(true);
     trackKitchenStockPresence();
 
-    // 2. High-frequency 1-second auto-poll (silent, smooth, immediate)
+    // 2. High-frequency 1.5-second auto-poll (silent, smooth, immediate)
     const poller = setInterval(() => {
       loadOrders(false);
-    }, 1000);
+    }, 1500);
 
     // 3. Direct in-memory subscription to localOrders store (0ms instant sync)
     const unsubStore = localOrders.subscribe((freshOrders) => {
       if (Array.isArray(freshOrders)) {
+        const cinemaFiltered = freshOrders.filter(matchesCurrentCinema);
         setOrders((prev) => {
           const prevKey = prev.map((o) => `${o.id || o.order_number}:${o.status}`).join('|');
-          const nextKey = freshOrders.map((o) => `${o.id || o.order_number}:${o.status}`).join('|');
+          const nextKey = cinemaFiltered.map((o) => `${o.id || o.order_number}:${o.status}`).join('|');
           if (prevKey !== nextKey) {
-            if (freshOrders.length > prev.length) {
+            if (cinemaFiltered.length > prev.length) {
               kitchenAudio.playNewOrderChime();
-              setNewOrderAlert(freshOrders[0]?.order_number || 'New Order');
+              setNewOrderAlert(cinemaFiltered[0]?.order_number || 'New Order');
               setTimeout(() => setNewOrderAlert(null), 5000);
             }
-            return freshOrders;
+            return cinemaFiltered;
           }
           return prev;
         });
       }
     });
 
-    // 4. Instant re-sync when Safari tab becomes visible or receives focus
+    // 4. Instant re-sync when tab becomes visible or receives focus
     const handleVisibility = () => {
       if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
         loadOrders(false);
@@ -149,13 +163,17 @@ export default function KitchenDashboard({
         window.removeEventListener('focus', handleVisibility);
       }
     };
-  }, [loadOrders]);
+  }, [loadOrders, matchesCurrentCinema]);
 
-  // Real-time Supabase / Local Orders Subscription
+  // Real-time Cloud Sync & Supabase Orders Subscription
   useEffect(() => {
     const unsubscribe = subscribeToKitchenOrders({
       isDemo: isDemoMode,
+      cinemaSlug: staffProfile?.theatre_slug,
+      theatreId: staffProfile?.theatre_id,
       onInsert: (newOrder) => {
+        if (!matchesCurrentCinema(newOrder)) return;
+
         // Play cinema kitchen chime!
         kitchenAudio.playNewOrderChime();
 
@@ -193,7 +211,8 @@ export default function KitchenDashboard({
     return () => {
       if (typeof unsubscribe === 'function') unsubscribe();
     };
-  }, [isDemoMode]);
+  }, [isDemoMode, staffProfile?.theatre_slug, staffProfile?.theatre_id, matchesCurrentCinema]);
+
 
   // Handle Sound Toggle
   const handleToggleSound = () => {
@@ -325,8 +344,14 @@ export default function KitchenDashboard({
   // Unique screens for dropdown filter
   const screenOptions = useMemo(() => {
     const screens = new Set(orders.map((o) => o.screen_name).filter(Boolean));
+    if (Array.isArray(staffProfile?.theatre_screens)) {
+      staffProfile.theatre_screens.forEach((s) => {
+        const name = typeof s === 'string' ? s : s?.name;
+        if (name) screens.add(name);
+      });
+    }
     return Array.from(screens);
-  }, [orders]);
+  }, [orders, staffProfile?.theatre_screens]);
 
   // Filtered Orders
   const filteredOrders = useMemo(() => {
@@ -370,15 +395,35 @@ export default function KitchenDashboard({
             </div>
             <div className="kitchen-title-box">
               <h1>
-                Cine<span>Bite</span> Kitchen Feed
+                Cine<span>Bite</span> • {staffProfile?.theatre_name || 'Kitchen Feed'}
               </h1>
-              <p>Food Department Live In-Seat Fulfillment</p>
+              <p style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                <span style={{ color: '#FFB703', fontWeight: 700 }}>📍 {staffProfile?.theatre_name || 'Cinema Kitchen'}</span>
+                <span>• {staffProfile?.full_name || 'Staff'}</span>
+              </p>
             </div>
           </div>
 
           <div className="kitchen-header-actions">
+            <div className="kitchen-cinema-pill" style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              background: 'rgba(255, 159, 28, 0.12)',
+              border: '1px solid rgba(255, 159, 28, 0.35)',
+              color: '#FFB703',
+              padding: '4px 10px',
+              borderRadius: '100px',
+              fontSize: '0.75rem',
+              fontWeight: 700
+            }}>
+              <span>📍</span>
+              <span>{staffProfile?.theatre_name || 'Cinema Kitchen'}</span>
+            </div>
+
             <div className="kitchen-live-pill">
               <span className="kitchen-live-dot" />
+
               <span>LIVE</span>
             </div>
 

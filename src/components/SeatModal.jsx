@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
-import { X, ChevronRight, AlertCircle, Film, MapPin, Armchair, Check } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { X, ChevronRight, AlertCircle, Film, MapPin, Armchair, Check, Building2 } from 'lucide-react';
 import feastBg from '../assets/images/cinema-feast-bg.png';
+import { resolveCinema, getAllCinemas } from '../data/cinemaRegistry';
 import '../styles/netflix-modal.css';
 
 export const CINEMA_SEAT_REGEX = /^(?:[A-Z]{1,2}|VIP|BOX|BALC|BALCONY|RECLINER|SOFA)[- ]?[0-9]{1,3}$/i;
@@ -23,6 +24,8 @@ export default function SeatModal({
 }) {
   if (!isOpen) return null;
 
+  const registeredCinemas = useMemo(() => getAllCinemas(), []);
+
   const [theater, setTheater] = useState(cinemaDetails.theaterName || 'PVR INOX Grand Cinema');
   const [screen, setScreen] = useState(cinemaDetails.screenName || 'Screen 2 (Audi 2 - Dolby Atmos)');
   const [seat, setSeat] = useState(cinemaDetails.seatNumber || '');
@@ -41,6 +44,19 @@ export default function SeatModal({
       setSeat(cinemaDetails.seatNumber || '');
     }
   }, [cinemaDetails]);
+
+  // When cinema name changes, auto-suggest cinema's screens
+  const availableScreens = useMemo(() => {
+    const matched = resolveCinema(theater);
+    if (matched?.screens && matched.screens.length > 0) {
+      return matched.screens.map((s) => (typeof s === 'string' ? s : s.name));
+    }
+    return cinemaDetails.screensAvailable || [
+      'Screen 1 (IMAX Laser)',
+      'Screen 2 (Audi 2 - Dolby Atmos)',
+      'Screen 3 (Gold Class VIP)'
+    ];
+  }, [theater, cinemaDetails.screensAvailable]);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -66,6 +82,7 @@ export default function SeatModal({
     }
 
     const formattedSeat = formatCinemaSeat(trimmedSeat);
+    const resolvedCinema = resolveCinema(theater.trim());
 
     setErrorMsg('');
     if (typeof window !== 'undefined') {
@@ -73,12 +90,17 @@ export default function SeatModal({
     }
     onSave({
       ...cinemaDetails,
-      theaterName: theater.trim(),
+      theatreId: resolvedCinema.id,
+      theatreSlug: resolvedCinema.slug,
+      theaterName: resolvedCinema.name,
       screenName: screen.trim(),
+      screenId: resolvedCinema.defaultScreenId || cinemaDetails.screenId,
+      screensAvailable: availableScreens,
       seatNumber: formattedSeat
     });
     onClose();
   };
+
 
   const handleSkip = () => {
     if (typeof window !== 'undefined') {
@@ -175,14 +197,28 @@ export default function SeatModal({
                 <input
                   type="text"
                   className="netflix-text-input"
+                  list="theatres-list"
                   value={theater}
                   onChange={(e) => {
-                    setTheater(e.target.value);
+                    const val = e.target.value;
+                    setTheater(val);
                     if (errorMsg) setErrorMsg('');
+                    const matched = resolveCinema(val);
+                    if (matched && matched.name.toLowerCase() === val.toLowerCase()) {
+                      const firstSc = matched.defaultScreen || matched.screens?.[0]?.name;
+                      if (firstSc) setScreen(firstSc);
+                    }
                   }}
                   placeholder="e.g. PVR INOX Grand Cinema"
                   required
                 />
+                <datalist id="theatres-list">
+                  {registeredCinemas.map((c) => (
+                    <option key={c.slug} value={c.name}>
+                      {c.name} ({c.city})
+                    </option>
+                  ))}
+                </datalist>
               </div>
 
               <div className="netflix-input-box">
@@ -198,19 +234,14 @@ export default function SeatModal({
                     if (errorMsg) setErrorMsg('');
                   }}
                 >
-                  {cinemaDetails.screensAvailable?.map((s) => (
+                  {availableScreens.map((s) => (
                     <option key={s} value={s}>
                       {s}
                     </option>
-                  )) || (
-                    <>
-                      <option value="Screen 1 (IMAX Laser)">Screen 1 (IMAX Laser)</option>
-                      <option value="Screen 2 (Audi 2 - Dolby Atmos)">Screen 2 (Audi 2 - Dolby Atmos)</option>
-                      <option value="Screen 3 (Gold Class VIP)">Screen 3 (Gold Class VIP)</option>
-                    </>
-                  )}
+                  ))}
                 </select>
               </div>
+
             </div>
 
             {/* Seat Number Box - Exactly matching Theatre Name and Screen / Audi in length and width */}

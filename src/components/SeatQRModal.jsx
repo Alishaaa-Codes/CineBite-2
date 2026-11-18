@@ -13,9 +13,11 @@ import {
   Film, 
   MapPin, 
   Sparkles,
-  Popcorn
+  Popcorn,
+  Building2
 } from 'lucide-react';
 import { generateQRSvg } from '../lib/qrCode';
+import { getAllCinemas, resolveCinema } from '../data/cinemaRegistry';
 import '../styles/qr-scanner.css';
 
 export default function SeatQRModal({ 
@@ -26,16 +28,24 @@ export default function SeatQRModal({
 }) {
   if (!isOpen) return null;
 
-  // 1. Standee Config State
-  const [selectedSeat, setSelectedSeat] = useState(cinemaDetails?.seatNumber || 'F-14');
-  const [selectedScreen, setSelectedScreen] = useState(
-    cinemaDetails?.screenName || 'Screen 2 (Audi 2 - Dolby Atmos)'
-  );
-  const [theaterName, setTheaterName] = useState(
-    cinemaDetails?.theaterName || 'PVR INOX Grand Cinema'
-  );
+  const cinemas = useMemo(() => getAllCinemas(), []);
 
-  // 2. Base Host / IP: Default to live Vercel production domain
+  // 1. Selected Cinema State
+  const [selectedCinemaSlug, setSelectedCinemaSlug] = useState(() => {
+    return cinemaDetails?.theatreSlug || resolveCinema(cinemaDetails?.theaterName || cinemaDetails?.theatreId)?.slug || 'pvr-grand';
+  });
+
+  const selectedCinema = useMemo(() => {
+    return resolveCinema(selectedCinemaSlug);
+  }, [selectedCinemaSlug, cinemas]);
+
+  // 2. Standee Config State
+  const [selectedSeat, setSelectedSeat] = useState(cinemaDetails?.seatNumber || 'F-14');
+  const [selectedScreen, setSelectedScreen] = useState(() => {
+    return cinemaDetails?.screenName || selectedCinema?.defaultScreen || 'Screen 2 (Audi 2 - Dolby Atmos)';
+  });
+
+  // 3. Base Host / IP: Default to live Vercel production domain
   const [baseHost, setBaseHost] = useState(() => {
     if (typeof window !== 'undefined') {
       const hostname = window.location.hostname;
@@ -50,21 +60,22 @@ export default function SeatQRModal({
 
   const [copied, setCopied] = useState(false);
 
-  // 3. Generate Target In-Seat Ordering URL
+  // 4. Generate Target In-Seat Ordering URL
   const targetUrl = useMemo(() => {
     try {
       const url = new URL(baseHost);
-      url.searchParams.set('theater', theaterName);
+      url.searchParams.set('cinema', selectedCinema.slug);
+      url.searchParams.set('theatre', selectedCinema.name);
       url.searchParams.set('screen', selectedScreen);
       url.searchParams.set('seat', selectedSeat.toUpperCase());
       url.searchParams.set('from', 'qr');
       return url.toString();
     } catch {
-      return `${baseHost}/?theater=${encodeURIComponent(theaterName)}&screen=${encodeURIComponent(selectedScreen)}&seat=${encodeURIComponent(selectedSeat)}&from=qr`;
+      return `${baseHost}/?cinema=${encodeURIComponent(selectedCinema.slug)}&theatre=${encodeURIComponent(selectedCinema.name)}&screen=${encodeURIComponent(selectedScreen)}&seat=${encodeURIComponent(selectedSeat)}&from=qr`;
     }
-  }, [baseHost, theaterName, selectedScreen, selectedSeat]);
+  }, [baseHost, selectedCinema, selectedScreen, selectedSeat]);
 
-  // 4. Generate Sharp SVG QR Code
+  // 5. Generate Sharp SVG QR Code
   const qrSvg = useMemo(() => {
     try {
       return generateQRSvg(targetUrl, {
@@ -79,6 +90,16 @@ export default function SeatQRModal({
     }
   }, [targetUrl]);
 
+  // Handle cinema change
+  const handleCinemaChange = (newSlug) => {
+    setSelectedCinemaSlug(newSlug);
+    const newCinema = resolveCinema(newSlug);
+    if (newCinema) {
+      const defaultSc = newCinema.defaultScreen || (typeof newCinema.screens?.[0] === 'string' ? newCinema.screens[0] : newCinema.screens?.[0]?.name);
+      if (defaultSc) setSelectedScreen(defaultSc);
+    }
+  };
+
   // Copy URL to clipboard
   const handleCopy = async () => {
     try {
@@ -86,7 +107,6 @@ export default function SeatQRModal({
       setCopied(true);
       setTimeout(() => setCopied(false), 2200);
     } catch {
-      // Fallback
       const ta = document.createElement('textarea');
       ta.value = targetUrl;
       document.body.appendChild(ta);
@@ -104,7 +124,7 @@ export default function SeatQRModal({
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `CineBite-Seat-${selectedSeat}-QR.svg`;
+    a.download = `CineBite-${selectedCinema.slug}-Seat-${selectedSeat}-QR.svg`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -126,7 +146,7 @@ export default function SeatQRModal({
           <div className="qr-modal-header-title">
             <QrCode size={22} color="#E50914" />
             <h2>
-              Cine<span>Bite</span> In-Seat Cinema QR Generator
+              Cine<span>Bite</span> Cinema QR Standee Generator
             </h2>
           </div>
 
@@ -154,12 +174,12 @@ export default function SeatQRModal({
               {/* Standee Header */}
               <div className="standee-header-ribbon">
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <Popcorn size={18} color="#E50914" />
+                  <Popcorn size={18} color={selectedCinema.brandColor || '#E50914'} />
                   <h3 className="standee-brand-name">
                     Cine<span>Bite</span>
                   </h3>
                 </div>
-                <span className="standee-subtitle">In-Seat Cinema Dining</span>
+                <span className="standee-subtitle">{selectedCinema.name}</span>
               </div>
 
               {/* Seat & Audi Display */}
@@ -191,7 +211,7 @@ export default function SeatQRModal({
                 <span className="standee-scan-subprompt">
                   Open your Phone Camera • No App Needed
                   <br />
-                  Delivered directly to this seat during the movie
+                  Delivered to this seat at <strong>{selectedCinema.name}</strong>
                 </span>
               </div>
             </div>
@@ -199,18 +219,38 @@ export default function SeatQRModal({
 
           {/* Right: Customization Controls & Testing Instructions */}
           <div className="qr-controls-container">
-            {/* Network Guide */}
+            {/* Cinema Selection & Network Guide */}
             <div className="qr-network-guide">
               <Smartphone size={20} color="#FF9F1C" style={{ flexShrink: 0, marginTop: '2px' }} />
               <div className="qr-network-guide-text">
-                <strong>How customers scan this in the theatre:</strong>
+                <strong>Multi-Cinema QR Routing:</strong>
                 <br />
-                Point any smartphone camera (iPhone Camera app, Android Google Lens / Samsung Camera) at this QR code. It opens the CineBite dining menu directly on their phone with Seat <strong>{selectedSeat.toUpperCase()}</strong> pre-filled!
+                Scanning this QR code links customer phones directly to <strong>{selectedCinema.name}</strong> ({selectedCinema.city}). All orders go straight to this cinema's kitchen portal!
               </div>
             </div>
 
-            {/* Target Seat & Audi Form */}
+            {/* Target Cinema, Seat & Audi Form */}
             <div className="qr-section-box">
+              <span className="qr-section-label">
+                <Building2 size={13} color="#FF9F1C" />
+                Select Cinema / Theatre
+              </span>
+
+              <div style={{ marginBottom: '12px' }}>
+                <select
+                  className="qr-form-select"
+                  value={selectedCinemaSlug}
+                  onChange={(e) => handleCinemaChange(e.target.value)}
+                  style={{ width: '100%', fontWeight: 700 }}
+                >
+                  {cinemas.map((c) => (
+                    <option key={c.slug} value={c.slug}>
+                      {c.name} ({c.city})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               <span className="qr-section-label">
                 <Armchair size={13} color="#E50914" />
                 Select Cinema Seat & Screen
@@ -239,15 +279,12 @@ export default function SeatQRModal({
                     value={selectedScreen}
                     onChange={(e) => setSelectedScreen(e.target.value)}
                   >
-                    {cinemaDetails?.screensAvailable?.map((s) => (
-                      <option key={s} value={s}>{s}</option>
-                    )) || (
-                      <>
-                        <option value="Screen 1 (IMAX Laser)">Screen 1 (IMAX Laser)</option>
-                        <option value="Screen 2 (Audi 2 - Dolby Atmos)">Screen 2 (Audi 2 - Dolby Atmos)</option>
-                        <option value="Screen 3 (Gold Class VIP)">Screen 3 (Gold Class VIP)</option>
-                      </>
-                    )}
+                    {selectedCinema.screens?.map((s) => {
+                      const screenVal = typeof s === 'string' ? s : s.name;
+                      return (
+                        <option key={screenVal} value={screenVal}>{screenVal}</option>
+                      );
+                    })}
                   </select>
                 </div>
               </div>
@@ -273,98 +310,69 @@ export default function SeatQRModal({
               </div>
             </div>
 
-            {/* Network Host / QR URL */}
+            {/* Generated Destination URL Bar */}
             <div className="qr-section-box">
               <span className="qr-section-label">
-                <Wifi size={13} color="#4ADE80" />
-                Network Target URL (Accessible on Phones)
+                <Sparkles size={13} color="#FFB703" />
+                Encoded QR Destination Link
               </span>
 
-              <div className="qr-url-row">
-                <input
-                  type="text"
+              <div className="qr-url-box">
+                <input 
+                  type="text" 
+                  readOnly 
+                  value={targetUrl} 
                   className="qr-url-input"
-                  value={targetUrl}
-                  readOnly
+                  title="Target in-seat ordering URL"
                 />
                 <button 
-                  className={`qr-btn-action ${copied ? 'copied' : ''}`} 
-                  onClick={handleCopy}
-                  title="Copy direct link"
+                  type="button" 
+                  onClick={handleCopy} 
+                  className="qr-copy-btn"
+                  title="Copy link to clipboard"
                 >
-                  {copied ? <Check size={14} /> : <Copy size={14} />}
+                  {copied ? <Check size={14} color="#4ADE80" /> : <Copy size={14} />}
                   <span>{copied ? 'Copied!' : 'Copy'}</span>
                 </button>
+              </div>
+
+              {/* Quick Open in New Tab Button */}
+              <div style={{ marginTop: '8px' }}>
                 <a
                   href={targetUrl}
                   target="_blank"
-                  rel="noreferrer"
-                  className="qr-btn-action"
-                  title="Test link in browser"
+                  rel="noopener noreferrer"
+                  className="qr-open-link-btn"
                 >
-                  <ExternalLink size={14} />
-                  <span>Test</span>
+                  <ExternalLink size={13} />
+                  <span>Test Mobile Menu for {selectedCinema.name} in New Tab</span>
                 </a>
               </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
-                <span style={{ fontSize: '0.72rem', color: '#A0A5B5' }}>Base IP / Host:</span>
-                <input
-                  type="text"
-                  value={baseHost}
-                  onChange={(e) => setBaseHost(e.target.value)}
-                  placeholder="e.g. http://192.168.29.91:5173"
-                  style={{
-                    background: 'transparent',
-                    border: '1px solid rgba(255,255,255,0.15)',
-                    borderRadius: '4px',
-                    padding: '2px 8px',
-                    color: '#FF9F1C',
-                    fontSize: '0.72rem',
-                    fontFamily: 'monospace',
-                    flex: 1
-                  }}
-                />
-              </div>
             </div>
 
-            {/* Step-by-Step Test Instructions */}
-            <div className="qr-test-steps">
-              <h4>📱 Scan from Any Phone:</h4>
-              <ol>
-                <li>Open your smartphone camera app (iPhone Camera or Android Google Lens).</li>
-                <li>Point it at the QR code on the left.</li>
-                <li>Tap the link popup to open your live Vercel menu at <strong>https://cine-bite-2-jo85.vercel.app</strong>!</li>
-              </ol>
+            {/* Action Buttons: Print Standee & Download SVG */}
+            <div className="qr-action-buttons-row">
+              <button 
+                type="button" 
+                className="qr-print-btn"
+                onClick={handlePrint}
+                title="Print physical armrest standee card"
+              >
+                <Printer size={15} />
+                <span>Print Standee</span>
+              </button>
+
+              <button 
+                type="button" 
+                className="qr-download-btn"
+                onClick={handleDownloadSvg}
+                title="Download scalable SVG QR code for graphic design"
+              >
+                <Download size={15} />
+                <span>Download SVG</span>
+              </button>
             </div>
           </div>
-        </div>
-
-        {/* Footer Actions */}
-        <div className="qr-modal-footer">
-          <a 
-            href="/images/cinebite_customer_dining_qr.png" 
-            download="CineBite-Cinema-Standee-QR.png"
-            className="qr-btn-action"
-            style={{ textDecoration: 'none' }}
-          >
-            <Download size={14} />
-            <span>Download Standee PNG</span>
-          </a>
-
-          <button className="qr-btn-action" onClick={handleDownloadSvg}>
-            <Download size={14} />
-            <span>Download QR SVG</span>
-          </button>
-
-          <button className="qr-btn-action" onClick={handlePrint}>
-            <Printer size={14} />
-            <span>Print Seat Standee</span>
-          </button>
-
-          <button className="qr-btn-primary" onClick={onClose}>
-            <span>Done</span>
-          </button>
         </div>
       </div>
     </div>

@@ -15,6 +15,7 @@ import {
   MENU_ITEMS, 
   DEFAULT_CINEMA_DETAILS 
 } from './data/mockMenu';
+import { resolveCinema, getAllCinemas } from './data/cinemaRegistry';
 import { 
   placeCinemaOrder, 
   isSupabaseConfigured, 
@@ -57,16 +58,25 @@ const isStaffRoute = (pathname = '', search = '') => {
 const DEFAULT_STAFF_AUTH = {
   user: {
     id: 'authorized-staff-user',
-    email: 'kitchen@cinebite.cinema'
+    email: 'kitchen@pvr-grand.cinema'
   },
   profile: {
     id: 'authorized-staff-user',
     role: 'kitchen_staff',
     full_name: 'Head Kitchen Staff',
-    theatre_id: '11111111-1111-1111-1111-111111111111'
+    theatre_id: '11111111-1111-1111-1111-111111111111',
+    theatre_slug: 'pvr-grand',
+    theatre_name: 'PVR INOX Grand Cinema',
+    theatre_screens: [
+      'Screen 1 (IMAX Laser)',
+      'Screen 2 (Audi 2 - Dolby Atmos)',
+      'Screen 3 (Gold Class VIP)',
+      'Screen 4 (4DX Motion)'
+    ]
   },
   isDemo: false
 };
+
 
 export default function App() {
   // 1. Navigation / Portal View State ('customer' | 'staff')
@@ -146,22 +156,27 @@ export default function App() {
   const [cinemaDetails, setCinemaDetails] = useState(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
+      const urlCinema = params.get('cinema') || params.get('theatre') || params.get('theater');
+      const matchedCinema = resolveCinema(urlCinema);
       const urlScreen = params.get('screen');
       const urlSeat = params.get('seat');
-      const urlTheater = params.get('theater');
 
       const CINEMA_SEAT_REGEX = /^(?:[A-Z]{1,2}|VIP|BOX|BALC|BALCONY|RECLINER|SOFA)[- ]?[0-9]{1,3}$/i;
       const validSeat = urlSeat && CINEMA_SEAT_REGEX.test(urlSeat.trim()) ? urlSeat.trim().toUpperCase() : '';
 
       return {
-        ...DEFAULT_CINEMA_DETAILS,
-        theaterName: urlTheater || DEFAULT_CINEMA_DETAILS.theaterName,
-        screenName: urlScreen || DEFAULT_CINEMA_DETAILS.screenName,
-        seatNumber: validSeat
+        theatreId: matchedCinema.id,
+        theatreSlug: matchedCinema.slug,
+        theaterName: matchedCinema.name,
+        screenName: urlScreen || matchedCinema.defaultScreen,
+        screenId: matchedCinema.defaultScreenId || '33333333-3333-3333-3333-333333333333',
+        seatNumber: validSeat,
+        screensAvailable: (matchedCinema.screens || []).map((s) => (typeof s === 'string' ? s : s.name))
       };
     }
-    return { ...DEFAULT_CINEMA_DETAILS, seatNumber: '' };
+    return { ...DEFAULT_CINEMA_DETAILS, theatreSlug: 'pvr-grand', seatNumber: '' };
   });
+
 
   // 4. Cart & Modal States
   const [cart, setCart] = useState([]);
@@ -386,13 +401,15 @@ export default function App() {
     return Boolean(itemInMenu?.isOutOfStock);
   }, [menuItems]);
 
-  // Real-time status subscription from Supabase for customer
+  // Real-time status subscription from Supabase and Cloud Sync for customer
   useEffect(() => {
     if (activeOrder?.dbOrderId || activeOrder?.orderId) {
       const unsubscribe = subscribeToOrderStatus({
         orderId: activeOrder.dbOrderId || activeOrder.orderId,
         orderNumber: activeOrder.orderId,
-        accessToken: activeOrder.accessToken
+        accessToken: activeOrder.accessToken,
+        cinemaSlug: activeOrder.theatreSlug || cinemaDetails.theatreSlug,
+        theatreSlug: activeOrder.theatreSlug || cinemaDetails.theatreSlug
       }, (newStatus) => {
         updateActiveOrder((prev) => {
           if (!prev) return null;
@@ -402,7 +419,8 @@ export default function App() {
       });
       return unsubscribe;
     }
-  }, [activeOrder?.dbOrderId, activeOrder?.orderId, activeOrder?.accessToken, updateActiveOrder]);
+  }, [activeOrder?.dbOrderId, activeOrder?.orderId, activeOrder?.accessToken, activeOrder?.theatreSlug, cinemaDetails.theatreSlug, updateActiveOrder]);
+
 
   // Automatically remove any out-of-stock items from active cart if kitchen marks them out of stock
   useEffect(() => {
@@ -500,12 +518,15 @@ export default function App() {
     setCart([]);
   };
 
-  // Place Order (Calls atomic Supabase RPC or local fallback)
+  // Place Order (Calls atomic Supabase RPC, Cloud Sync, and local fallback)
   const handlePlaceOrder = async (orderData) => {
     try {
       const result = await placeCinemaOrder({
         theatreId: cinemaDetails.theatreId,
+        theatreSlug: cinemaDetails.theatreSlug,
+        theatreName: cinemaDetails.theaterName,
         screenId: cinemaDetails.screenId,
+        screenName: cinemaDetails.screenName,
         seatNumber: cinemaDetails.seatNumber,
         cart: orderData.cart,
         customerName: orderData.customerName,
@@ -519,11 +540,17 @@ export default function App() {
         dbOrderId: result.dbOrderId,
         accessToken: result.accessToken,
         status: result.status || 'received',
+        theatreId: result.theatreId || cinemaDetails.theatreId,
+        theatreSlug: result.theatreSlug || cinemaDetails.theatreSlug,
+        theatreName: result.theatreName || cinemaDetails.theaterName,
+        screenName: result.screenName || cinemaDetails.screenName,
+        seatNumber: result.seatNumber || cinemaDetails.seatNumber,
         grandTotal: result.totalAmount || orderData.grandTotal,
         subtotal: result.subtotal || orderData.subtotal,
         gst: result.taxAmount || orderData.gst,
         placedAt: result.placedAt || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       };
+
 
       updateActiveOrder(confirmedOrder);
       setCart([]);

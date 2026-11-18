@@ -29,9 +29,9 @@ export default function Header({
             <h1 className="brand-name">
               Cine<span>Bite</span>
             </h1>
-            <div className="brand-location-tag" onClick={onOpenSeatModal} title="In-Seat Delivery Details">
+            <div className="brand-location-tag" onClick={onOpenSeatModal} title={`${cinemaDetails?.theaterName || 'Cinema'} • In-Seat Delivery Details`}>
               <span className="seat-live-dot" />
-              <span>{screenLabel} • {seatLabel}</span>
+              <span>{cinemaDetails?.theaterName ? `${cinemaDetails.theaterName.split(' ')[0]} • ` : ''}{screenLabel} • {seatLabel}</span>
             </div>
           </div>
         </div>

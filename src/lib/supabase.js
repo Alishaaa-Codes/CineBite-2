@@ -1,5 +1,13 @@
 import { createClient } from '@supabase/supabase-js';
 import { MENU_ITEMS } from '../data/mockMenu.js';
+import { 
+  publishCloudOrder, 
+  publishCloudStatusUpdate, 
+  subscribeToCinemaKitchenCloud, 
+  subscribeCustomerOrderStatusCloud,
+  getCinemaTopic 
+} from './cloudSync.js';
+import { resolveCinema, validateCinemaStaff, MASTER_STAFF_PASSCODES } from '../data/cinemaRegistry.js';
 
 // Read and sanitize Vite environment variables with production fallback
 const FALLBACK_SUPABASE_URL = 'https://vvowuokndzefnhdlhgqm.supabase.co';
@@ -425,13 +433,23 @@ export const localOrders = new LocalOrdersStore();
  */
 export async function placeCinemaOrder({
   theatreId,
+  theatreSlug,
+  theatreName,
   screenId,
+  screenName,
   seatNumber,
   cart,
   customerName,
   customerPhone,
   specialNotes
 }) {
+  const resolvedCinema = resolveCinema(theatreSlug || theatreName || theatreId);
+  const activeTheatreId = theatreId || resolvedCinema?.id || '11111111-1111-1111-1111-111111111111';
+  const activeTheatreSlug = theatreSlug || resolvedCinema?.slug || 'pvr-grand';
+  const activeTheatreName = theatreName || resolvedCinema?.name || 'PVR INOX Grand Cinema';
+  const activeScreenName = screenName || resolvedCinema?.defaultScreen || 'Screen 2 (Audi 2 - Dolby Atmos)';
+  const activeScreenId = screenId || resolvedCinema?.defaultScreenId || '33333333-3333-3333-3333-333333333333';
+
   const subtotal = cart.reduce((acc, it) => acc + (it.price * it.quantity), 0);
   const tax = Math.round(subtotal * 0.05 * 100) / 100;
   const total = subtotal + tax;
@@ -446,47 +464,52 @@ export async function placeCinemaOrder({
         quantity: item.quantity
       }));
 
-      const { data, error } = await supabase.rpc('place_cinema_order', {
-        p_theatre_id: theatreId,
-        p_screen_id: screenId,
-        p_seat_code: seatNumber,
-        p_items: itemsPayload,
-        p_customer_name: customerName,
-        p_customer_phone: customerPhone,
-        p_special_notes: specialNotes
-      });
+      // Only invoke RPC if theatreId is a valid UUID
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(activeTheatreId));
+      if (isUuid) {
+        const { data, error } = await supabase.rpc('place_cinema_order', {
+          p_theatre_id: activeTheatreId,
+          p_screen_id: activeScreenId,
+          p_seat_code: seatNumber,
+          p_items: itemsPayload,
+          p_customer_name: customerName,
+          p_customer_phone: customerPhone,
+          p_special_notes: specialNotes
+        });
 
-      if (!error && data) {
-        liveOrder = {
-          id: data.order_id,
-          order_number: data.order_number,
-          theatre_id: theatreId,
-          screen_id: screenId,
-          theatre_name: data.theatre_name || 'PVR INOX Grand Cinema',
-          screen_name: data.screen_name || 'Screen 2 (Audi 2 - Dolby Atmos)',
-          seat_code: data.seat_code || seatNumber,
-          customer_name: customerName || 'Moviegoer',
-          customer_phone: customerPhone || null,
-          special_notes: specialNotes || null,
-          status: data.status || 'received',
-          subtotal: data.subtotal || subtotal,
-          tax_amount: data.tax_amount || tax,
-          delivery_fee: 0.00,
-          total_amount: data.total_amount || total,
-          order_access_token: data.access_token || `token-${Math.random().toString(36).substring(2)}`,
-          created_at: data.created_at || new Date().toISOString(),
-          updated_at: data.created_at || new Date().toISOString(),
-          order_items: cart.map((c, i) => ({
-            id: `li-${data.order_id}-${i}`,
-            menu_item_id: c.menuItemId || (c.id.includes('-size-') ? c.id.split('-size-')[0] : c.id),
-            item_name: c.name,
-            quantity: c.quantity,
-            unit_price: c.price,
-            total_price: c.price * c.quantity
-          }))
-        };
-      } else {
-        console.warn('Supabase place_cinema_order failed, creating resilient order:', error);
+        if (!error && data) {
+          liveOrder = {
+            id: data.order_id,
+            order_number: data.order_number,
+            theatre_id: activeTheatreId,
+            theatre_slug: activeTheatreSlug,
+            screen_id: activeScreenId,
+            theatre_name: data.theatre_name || activeTheatreName,
+            screen_name: data.screen_name || activeScreenName,
+            seat_code: data.seat_code || seatNumber,
+            customer_name: customerName || 'Moviegoer',
+            customer_phone: customerPhone || null,
+            special_notes: specialNotes || null,
+            status: data.status || 'received',
+            subtotal: data.subtotal || subtotal,
+            tax_amount: data.tax_amount || tax,
+            delivery_fee: 0.00,
+            total_amount: data.total_amount || total,
+            order_access_token: data.access_token || `token-${Math.random().toString(36).substring(2)}`,
+            created_at: data.created_at || new Date().toISOString(),
+            updated_at: data.created_at || new Date().toISOString(),
+            order_items: cart.map((c, i) => ({
+              id: `li-${data.order_id}-${i}`,
+              menu_item_id: c.menuItemId || (c.id.includes('-size-') ? c.id.split('-size-')[0] : c.id),
+              item_name: c.name,
+              quantity: c.quantity,
+              unit_price: c.price,
+              total_price: c.price * c.quantity
+            }))
+          };
+        } else {
+          console.warn('Supabase place_cinema_order failed, creating resilient order:', error);
+        }
       }
     } catch (rpcErr) {
       console.warn('Supabase place_cinema_order exception, falling back:', rpcErr);
@@ -500,10 +523,11 @@ export async function placeCinemaOrder({
     liveOrder = {
       id: generatedId,
       order_number: orderNum,
-      theatre_id: theatreId,
-      screen_id: screenId,
-      theatre_name: 'PVR INOX Grand Cinema',
-      screen_name: 'Screen 2 (Audi 2 - Dolby Atmos)',
+      theatre_id: activeTheatreId,
+      theatre_slug: activeTheatreSlug,
+      screen_id: activeScreenId,
+      theatre_name: activeTheatreName,
+      screen_name: activeScreenName,
       seat_code: seatNumber,
       customer_name: customerName || 'Moviegoer',
       customer_phone: customerPhone || null,
@@ -530,7 +554,14 @@ export async function placeCinemaOrder({
   // 3. Persist into localOrders store (dispatches same-window, cross-tab, and storage events)
   localOrders.addOrder(liveOrder);
 
-  // 4. Broadcast in real time across ALL connected devices via Supabase Realtime WebSocket
+  // 4. Publish immediately via Cloud Sync Relay across the internet to PC Kitchen
+  try {
+    publishCloudOrder(liveOrder);
+  } catch (cloudErr) {
+    console.warn('Cloud order relay warning:', cloudErr);
+  }
+
+  // 5. Broadcast in real time across connected devices via Supabase Realtime WebSocket
   try {
     const channel = getKitchenOrdersChannel();
     if (channel) {
@@ -560,6 +591,8 @@ export async function placeCinemaOrder({
     dbOrderId: liveOrder.id,
     accessToken: liveOrder.order_access_token,
     status: liveOrder.status,
+    theatreId: liveOrder.theatre_id,
+    theatreSlug: liveOrder.theatre_slug,
     theatreName: liveOrder.theatre_name,
     screenName: liveOrder.screen_name,
     seatNumber: liveOrder.seat_code,
@@ -570,6 +603,7 @@ export async function placeCinemaOrder({
     notes: specialNotes
   };
 }
+
 
 /**
  * Look up single order status securely (token authenticated RPC or local)
@@ -657,6 +691,7 @@ export function subscribeToOrderStatus(optionsOrId, onStatusChange) {
   const orderId = typeof optionsOrId === 'object' ? optionsOrId.orderId : optionsOrId;
   const orderNumber = typeof optionsOrId === 'object' ? optionsOrId.orderNumber : null;
   const accessToken = typeof optionsOrId === 'object' ? optionsOrId.accessToken : null;
+  const cinemaSlug = typeof optionsOrId === 'object' ? (optionsOrId.cinemaSlug || optionsOrId.theatreSlug) : null;
 
   if (!orderId && !orderNumber) return () => {};
 
@@ -844,12 +879,23 @@ export function subscribeToOrderStatus(optionsOrId, onStatusChange) {
     } catch (e) {}
   };
 
+  // 6. Cloud PubSub Status Stream across devices
+  const unsubCloud = subscribeCustomerOrderStatusCloud({
+    cinemaSlug,
+    orderId,
+    orderNumber,
+    onStatusChange: applyStatusChange
+  });
+
   pollStatus();
   const pollTimer = setInterval(pollStatus, 2000);
 
   return () => {
     isCancelled = true;
     clearInterval(pollTimer);
+    if (typeof unsubCloud === 'function') {
+      try { unsubCloud(); } catch (e) {}
+    }
     if (typeof window !== 'undefined') {
       window.removeEventListener('cinebite:order-updated', handleLocalUpdate);
       window.removeEventListener('storage', handleStorage);
@@ -859,6 +905,7 @@ export function subscribeToOrderStatus(optionsOrId, onStatusChange) {
     }
   };
 }
+
 
 // -----------------------------------------------------------------------------
 // STAFF AUTHENTICATION & ORDERS API (Server & Database Enforced)
@@ -909,36 +956,42 @@ export async function getStaffSession() {
 }
 
 /**
- * Authenticates staff member using Supabase Auth and validates staff authorization
+ * Authenticates staff member using Cinema Credentials, Master Passcodes, or Supabase Auth
  */
-export async function signInStaff({ email, password }) {
+export async function signInStaff({ email, password, cinemaSlug = null, theatreId = null }) {
   const cleanPass = (password || '').trim();
   const cleanEmail = (email || '').trim().toLowerCase();
 
-  // Cinema Staff Master Passcodes
-  const MASTER_STAFF_PASSCODES = ['cinebite2026', 'staff123', '1234', 'admin123', 'chef123'];
-  const isMasterPasscode = MASTER_STAFF_PASSCODES.includes(cleanPass);
+  const selectedCinema = resolveCinema(cinemaSlug || theatreId || 'pvr-grand');
 
-  if (isMasterPasscode) {
+  // Validate credentials against cinema PINs or master passcodes
+  const authCheck = validateCinemaStaff({ cinemaSlugOrId: selectedCinema.slug, password: cleanPass });
+  if (authCheck.authorized) {
+    const staffId = `staff-${selectedCinema.slug}-${cleanEmail.replace(/[^a-z0-9]/g, '') || 'chef'}`;
+    const staffName = cleanEmail ? (cleanEmail.includes('@') ? cleanEmail.split('@')[0] : cleanEmail) : `Chef (${selectedCinema.name})`;
+
     return {
       success: true,
       isStaffAuthorized: true,
       isDemo: false,
       user: {
-        id: 'authorized-staff-user',
-        email: cleanEmail || 'staff@cinebite.cinema'
+        id: staffId,
+        email: cleanEmail || `kitchen@${selectedCinema.slug}.cinema`
       },
       staffProfile: {
-        id: 'authorized-staff-user',
+        id: staffId,
         role: 'kitchen_staff',
-        full_name: cleanEmail ? (cleanEmail.includes('@') ? cleanEmail.split('@')[0] : cleanEmail) : 'Head Kitchen Staff',
-        theatre_id: '11111111-1111-1111-1111-111111111111'
+        full_name: staffName,
+        theatre_id: selectedCinema.id,
+        theatre_slug: selectedCinema.slug,
+        theatre_name: selectedCinema.name,
+        theatre_screens: selectedCinema.screens
       }
     };
   }
 
   if (!isSupabaseConfigured || !supabase) {
-    throw new Error('Access Denied: Invalid staff security password. Enter authorized cinema staff passcode (cinebite2026).');
+    throw new Error(authCheck.error || `Access Denied: Invalid credentials for ${selectedCinema.name}. Enter cinema PIN (${selectedCinema.passcodes?.[0] || 'pvr2026'}) or master passcode (cinebite2026).`);
   }
 
   const { data, error } = await supabase.auth.signInWithPassword({
@@ -975,7 +1028,12 @@ export async function signInStaff({ email, password }) {
     success: true,
     isStaffAuthorized: true,
     user: data.user,
-    staffProfile: profile
+    staffProfile: {
+      ...profile,
+      theatre_slug: selectedCinema.slug,
+      theatre_name: selectedCinema.name,
+      theatre_screens: selectedCinema.screens
+    }
   };
 }
 
@@ -991,14 +1049,14 @@ export async function signOutStaff() {
 
 /**
  * Fetches incoming and past orders for authorized staff.
- * Merges server orders with local orders so no orders are ever lost or blocked by RLS.
+ * Scoped to cinema so each cinema kitchen only views its own orders.
  */
-export async function fetchStaffOrders(isDemo = false) {
+export async function fetchStaffOrders(isDemo = false, targetTheatreId = null, targetTheatreSlug = null) {
   let serverOrders = [];
 
   if (!isDemo && isSupabaseConfigured && supabase) {
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from('orders')
         .select(`
           id,
@@ -1027,8 +1085,13 @@ export async function fetchStaffOrders(isDemo = false) {
             unit_price,
             total_price
           )
-        `)
-        .order('created_at', { ascending: false });
+        `);
+
+      if (targetTheatreId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(targetTheatreId))) {
+        query = query.eq('theatre_id', targetTheatreId);
+      }
+
+      const { data, error } = await query.order('created_at', { ascending: false });
 
       if (!error && Array.isArray(data) && data.length > 0) {
         serverOrders = data;
@@ -1038,7 +1101,7 @@ export async function fetchStaffOrders(isDemo = false) {
     }
   }
 
-  // Combine server orders with local orders so orders placed on this device or via local fallback are always visible
+  // Combine server orders with local orders
   const local = localOrders.getOrders();
   const merged = [...serverOrders];
   const seenIds = new Set(serverOrders.map(o => o.id || o.order_number));
@@ -1051,10 +1114,23 @@ export async function fetchStaffOrders(isDemo = false) {
     }
   }
 
-  // Sort by created_at descending (newest first)
-  merged.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+  // Filter by cinema scope if specified so each cinema sees ONLY its own orders!
+  let cinemaFiltered = merged;
+  if (targetTheatreId || targetTheatreSlug) {
+    const cinema = resolveCinema(targetTheatreSlug || targetTheatreId);
+    cinemaFiltered = merged.filter(o => {
+      if (!o) return false;
+      if (cinema?.id && o.theatre_id === cinema.id) return true;
+      if (cinema?.slug && (o.theatre_slug === cinema.slug || o.theatre_id === cinema.slug)) return true;
+      if (cinema?.name && o.theatre_name && o.theatre_name.toLowerCase().includes(cinema.name.toLowerCase())) return true;
+      return false;
+    });
+  }
 
-  return merged;
+  // Sort by created_at descending (newest first)
+  cinemaFiltered.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+
+  return cinemaFiltered;
 }
 
 /**
@@ -1091,11 +1167,25 @@ export async function updateOrderStatus(orderId, newStatus, isDemo = false, expl
     });
   }
 
-  // 2. Broadcast status update across devices via Supabase Realtime WebSocket
+  // 2. Publish status update across the internet to customer mobile phone via Cloud Sync Relay
+  const cinemaSlug = existingOrder?.theatre_slug || resolveCinema(existingOrder?.theatre_name || existingOrder?.theatre_id)?.slug || 'pvr-grand';
+  try {
+    publishCloudStatusUpdate({
+      cinemaSlug,
+      orderId: resolvedId,
+      orderNumber: resolvedNumber || updatedOrder?.order_number,
+      status: newStatus
+    });
+  } catch (cloudErr) {
+    console.warn('Cloud status relay warning:', cloudErr);
+  }
+
+  // 3. Broadcast status update across devices via Supabase Realtime WebSocket
   const detailPayload = {
     orderId: resolvedId,
     orderNumber: resolvedNumber || updatedOrder?.order_number,
     status: newStatus,
+    theatre_slug: cinemaSlug,
     updated_at: new Date().toISOString()
   };
 
@@ -1127,7 +1217,7 @@ export async function updateOrderStatus(orderId, newStatus, isDemo = false, expl
     console.warn('Realtime status broadcast warning:', bcErr);
   }
 
-  // 3. Attempt server database update (non-blocking)
+  // 4. Attempt server database update (non-blocking)
   let data = null;
   const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(orderId));
   if (!isDemo && isSupabaseConfigured && supabase) {
@@ -1161,6 +1251,7 @@ export async function updateOrderStatus(orderId, newStatus, isDemo = false, expl
   return data || updatedOrder || localOrders.getOrders().find(o => o.id === orderId || o.order_number === orderId);
 }
 
+
 /**
  * Subscribes the kitchen staff dashboard to real-time order events
  * Multi-layer sync:
@@ -1170,9 +1261,24 @@ export async function updateOrderStatus(orderId, newStatus, isDemo = false, expl
  * 4. Cross-device Supabase Realtime broadcast channel
  * 5. Supabase postgres_changes
  */
-export function subscribeToKitchenOrders({ onInsert, onUpdate, isDemo = false }) {
+export function subscribeToKitchenOrders({ onInsert, onUpdate, isDemo = false, cinemaSlug = null, theatreId = null }) {
+  const targetCinema = resolveCinema(cinemaSlug || theatreId || 'pvr-grand');
+
+  const matchesCinema = (order) => {
+    if (!order) return false;
+    if (!targetCinema) return true;
+    if (order.theatre_slug && targetCinema.slug && order.theatre_slug.toLowerCase() === targetCinema.slug.toLowerCase()) return true;
+    if (order.theatre_id && targetCinema.id && order.theatre_id === targetCinema.id) return true;
+    if (order.theatre_name && targetCinema.name && (
+      order.theatre_name.toLowerCase().includes(targetCinema.name.toLowerCase()) ||
+      targetCinema.name.toLowerCase().includes(order.theatre_name.toLowerCase())
+    )) return true;
+    return false;
+  };
+
   const handleNew = (order, isFromWindow = false) => {
     if (!order) return;
+    if (!matchesCinema(order)) return;
     if (!isFromWindow) {
       localOrders.addOrder(order, { silent: true });
     }
@@ -1187,7 +1293,18 @@ export function subscribeToKitchenOrders({ onInsert, onUpdate, isDemo = false })
     if (onUpdate) onUpdate(detail);
   };
 
-  // 1. Same-window CustomEvent listener
+  // 1. Cloud Sync Relay (SSE stream + 12h order replay)
+  const unsubCloud = subscribeToCinemaKitchenCloud({
+    cinemaSlug: targetCinema?.slug,
+    onOrder: (cloudOrder, isHistorical) => {
+      handleNew(cloudOrder, false);
+    },
+    onStatusUpdate: (statusPayload) => {
+      handleStatus(statusPayload, false);
+    }
+  });
+
+  // 2. Same-window CustomEvent listener
   const handleWindowEvent = (e) => handleNew(e.detail, true);
   const handleWindowUpdate = (e) => handleStatus(e.detail, true);
 
@@ -1196,7 +1313,7 @@ export function subscribeToKitchenOrders({ onInsert, onUpdate, isDemo = false })
     window.addEventListener('cinebite:order-updated', handleWindowUpdate);
   }
 
-  // 2. Cross-tab BroadcastChannel listener
+  // 3. Cross-tab BroadcastChannel listener
   const bc = getSharedBroadcastChannel();
   const handleBcMessage = (e) => {
     const data = e?.data;
@@ -1212,7 +1329,7 @@ export function subscribeToKitchenOrders({ onInsert, onUpdate, isDemo = false })
     } catch (e) {}
   }
 
-  // 3. Cross-tab localStorage storage listener
+  // 4. Cross-tab localStorage storage listener
   const handleStorage = (e) => {
     if (e.key === 'cinebite_new_order_sync' && e.newValue) {
       try {
@@ -1230,7 +1347,7 @@ export function subscribeToKitchenOrders({ onInsert, onUpdate, isDemo = false })
     window.addEventListener('storage', handleStorage);
   }
 
-  // 4. Supabase Cross-Device Realtime Broadcast & Postgres Changes
+  // 5. Supabase Cross-Device Realtime Broadcast & Postgres Changes
   const sbChannel = getKitchenOrdersChannel();
   if (sbChannel) {
     try {
@@ -1254,7 +1371,7 @@ export function subscribeToKitchenOrders({ onInsert, onUpdate, isDemo = false })
         })
         .on('broadcast', { event: 'request_sync' }, () => {
           try {
-            const currentOrders = localOrders.getOrders();
+            const currentOrders = localOrders.getOrders().filter(matchesCinema);
             if (currentOrders?.length) {
               sbChannel.send({
                 type: 'broadcast',
@@ -1268,7 +1385,7 @@ export function subscribeToKitchenOrders({ onInsert, onUpdate, isDemo = false })
           try {
             const req = msg?.payload;
             if (req) {
-              const currentOrders = localOrders.getOrders();
+              const currentOrders = localOrders.getOrders().filter(matchesCinema);
               const match = currentOrders.find(o => 
                 (req.orderId && (o.id === req.orderId || o.order_number === req.orderId)) ||
                 (req.orderNumber && (o.order_number === req.orderNumber || o.id === req.orderNumber))
@@ -1281,6 +1398,7 @@ export function subscribeToKitchenOrders({ onInsert, onUpdate, isDemo = false })
                     orderId: match.id,
                     orderNumber: match.order_number,
                     status: match.status,
+                    theatre_slug: targetCinema?.slug,
                     updated_at: match.updated_at || new Date().toISOString()
                   }
                 }).catch(() => {});
@@ -1318,7 +1436,7 @@ export function subscribeToKitchenOrders({ onInsert, onUpdate, isDemo = false })
         sbChannel.send({
           type: 'broadcast',
           event: 'request_sync',
-          payload: { requestedAt: Date.now() }
+          payload: { requestedAt: Date.now(), theatreSlug: targetCinema?.slug }
         }).catch(() => {});
       } else {
         sbChannel.subscribe((status) => {
@@ -1327,7 +1445,7 @@ export function subscribeToKitchenOrders({ onInsert, onUpdate, isDemo = false })
               sbChannel.send({
                 type: 'broadcast',
                 event: 'request_sync',
-                payload: { requestedAt: Date.now() }
+                payload: { requestedAt: Date.now(), theatreSlug: targetCinema?.slug }
               }).catch(() => {});
             } catch (e) {}
           }
@@ -1339,6 +1457,9 @@ export function subscribeToKitchenOrders({ onInsert, onUpdate, isDemo = false })
   }
 
   return () => {
+    if (typeof unsubCloud === 'function') {
+      try { unsubCloud(); } catch (e) {}
+    }
     if (typeof window !== 'undefined') {
       window.removeEventListener('cinebite:new-order', handleWindowEvent);
       window.removeEventListener('cinebite:order-updated', handleWindowUpdate);
@@ -1347,9 +1468,9 @@ export function subscribeToKitchenOrders({ onInsert, onUpdate, isDemo = false })
     if (bc) {
       try { bc.removeEventListener('message', handleBcMessage); } catch (e) {}
     }
-    // Channel connection remains continuously open across kitchen re-renders
   };
 }
+
 
 // -----------------------------------------------------------------------------
 // MENU & STOCK REALTIME SYNCHRONIZATION (Cross-Device)
